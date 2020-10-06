@@ -1,0 +1,13 @@
+# This file is part of Eruption
+# Copyright (c) 2019-2020, The Eruption Development Team
+# YAML manifest file for "GNOME Calculator"
+
+---
+exe_file: gnome-calculator
+checksum: 541f1cba677f144dc76b5b14779c1684c274ab3b
+version: 1
+parameters:
+ - name: value
+ description: Description
+ location: 0
+ default_color: 4278190080

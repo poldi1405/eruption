@@ -323,6 +323,20 @@ dependencies = [
 
 [[package]]
 name = "crossbeam"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69323bff1fb41c635347b8ead484a5ca6c3f11914d784170b158d8449ab07f8e"
+dependencies = [
+ "cfg-if 0.1.10",
+ "crossbeam-channel 0.4.4",
+ "crossbeam-deque 0.7.3",
+ "crossbeam-epoch 0.8.2",
+ "crossbeam-queue 0.2.3",
+ "crossbeam-utils 0.7.2",
+]
+
+[[package]]
+name = "crossbeam"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd01a6eb3daaafa260f6fc94c3a6c36390abc2080e38e3e34ced87393fb77d80"
@@ -331,7 +345,7 @@ dependencies = [
  "crossbeam-channel 0.5.0",
  "crossbeam-deque 0.8.0",
  "crossbeam-epoch 0.9.0",
- "crossbeam-queue",
+ "crossbeam-queue 0.3.0",
  "crossbeam-utils 0.8.0",
 ]
 
@@ -404,6 +418,17 @@ dependencies = [
  "lazy_static",
  "memoffset",
  "scopeguard",
+]
+
+[[package]]
+name = "crossbeam-queue"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "774ba60a54c213d409d5353bda12d49cd68d14e45036a285234c8d6f91f92570"
+dependencies = [
+ "cfg-if 0.1.10",
+ "crossbeam-utils 0.7.2",
+ "maybe-uninit",
 ]
 
 [[package]]
@@ -509,6 +534,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
+name = "dtoa"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -546,7 +577,7 @@ dependencies = [
  "clap",
  "color-eyre",
  "config",
- "crossbeam",
+ "crossbeam 0.8.0",
  "ctrlc",
  "dbus",
  "dbus-tree",
@@ -650,6 +681,45 @@ dependencies = [
  "tracing-subscriber",
  "walkdir",
  "x11",
+]
+
+[[package]]
+name = "eruption-process-monitor"
+version = "0.0.1"
+dependencies = [
+ "clap",
+ "clap_derive",
+ "color-eyre",
+ "colored",
+ "config",
+ "crossbeam 0.7.3",
+ "ctrlc",
+ "dbus",
+ "dbus-tokio",
+ "eyre",
+ "hexdump",
+ "hotwatch",
+ "itertools 0.9.0",
+ "lazy_static",
+ "libc",
+ "log",
+ "nix 0.18.0",
+ "parking_lot 0.11.0",
+ "paste 1.0.1",
+ "pretty_env_logger",
+ "procmon-sys",
+ "rayon",
+ "rust-crypto",
+ "serde 1.0.116",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-futures",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -871,6 +941,12 @@ dependencies = [
  "proc-macro-nested",
  "slab",
 ]
+
+[[package]]
+name = "gcc"
+version = "0.3.55"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f5f3913fa0bfe7ee1fd8248b6b9f42a5af4b9d65ec2dd2c3c26132b950ecfc2"
 
 [[package]]
 name = "generic-array"
@@ -1970,6 +2046,29 @@ dependencies = [
 
 [[package]]
 name = "rand"
+version = "0.3.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "64ac302d8f83c0c1974bf758f6b041c6c8ada916fbb44a609158ca8b064cc76c"
+dependencies = [
+ "libc",
+ "rand 0.4.6",
+]
+
+[[package]]
+name = "rand"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "552840b97013b1a26992c11eac34bdd778e464601a4c2054b5f0bff7c6761293"
+dependencies = [
+ "fuchsia-cprng",
+ "libc",
+ "rand_core 0.3.1",
+ "rdrand",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "rand"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c618c47cd3ebd209790115ab837de41425723956ad3ce2e6a7f09890947cacb9"
@@ -2088,6 +2187,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdrand"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
+dependencies = [
+ "rand_core 0.3.1",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.1.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2122,6 +2230,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cab7a364d15cde1e505267766a2d3c4e22a843e1a601f0fa7564c0f82ced11c"
 
 [[package]]
+name = "rust-crypto"
+version = "0.2.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f76d05d3993fd5f4af9434e8e436db163a12a9d40e1a58a726f27a01dfd12a2a"
+dependencies = [
+ "gcc",
+ "libc",
+ "rand 0.3.23",
+ "rustc-serialize",
+ "time",
+]
+
+[[package]]
 name = "rust-ini"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2141,6 +2262,12 @@ name = "rustc-demangle"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2610b7f643d18c87dff3b489950269617e6601a51f1f05aa5daefee36f64f0b"
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.24"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 
 [[package]]
 name = "rustc_version"
@@ -2263,6 +2390,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "110b3dbdf8607ec493c22d5d947753282f3bae73c0f56d322af1e8c78e4c23d5"
 dependencies = [
  "serde 0.8.23",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.8.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae3e2dd40a7cdc18ca80db804b7f461a39bb721160a85c9a1fa30134bf3c02a5"
+dependencies = [
+ "dtoa",
+ "linked-hash-map 0.5.3",
+ "serde 1.0.116",
+ "yaml-rust",
 ]
 
 [[package]]

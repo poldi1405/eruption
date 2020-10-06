@@ -1,0 +1,19 @@
+[Unit]
+Description=Process Monitoring and Introspection for Eruption
+Documentation=man:eruption-process-monitor(8) man:process-monitor.conf(5) man:eruptionctl(1)
+BindsTo=eruption.service
+Wants=basic.target
+
+[Service]
+ExecStart=/usr/bin/eruption-process-monitor -c /etc/eruption/process-monitor.conf daemon
+PIDFile=/run/eruption-process-monitor.pid
+Type=exec
+#ProtectHome=yes
+#ProtectSystem=full
+#ProtectKernelTunables=yes
+#ProtectControlGroups=yes
+#PrivateDevices=no
+#PrivateTmp=yes
+
+[Install]
+WantedBy=basic.target
