@@ -1738,8 +1738,6 @@ fn init_mouse_device(mouse_device: &Option<MouseDevice>, hidapi: &hidapi::HidApi
 
 /// Main program entrypoint
 pub fn main() -> std::result::Result<(), eyre::Error> {
-    color_eyre::install()?;
-
     if unsafe { libc::isatty(0) != 0 } {
         print_header();
     }

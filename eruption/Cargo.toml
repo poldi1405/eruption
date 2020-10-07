@@ -27,7 +27,6 @@ log = "0.4.11"
 pretty_env_logger = "0.4.0"
 thiserror = "1.0.21"
 eyre = "0.6.1"
-color-eyre = "0.5.6"
 toml = "0.5.6"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = { version = "1.0.58" }
@@ -51,9 +50,9 @@ noise = "0.6.0"
 simdnoise = "3.1.6"
 interpolation = "0.2.0"
 # lua-src = "540.0.0"
-mlua = { version = "0.4.2", features = ["luajit"] }
+mlua = { version = "0.4.1", features = ["luajit"] }
 mlua_derive = { version = "0.4.0" }
-sysinfo = "0.15"
+sysinfo = "=0.14.2"
 systemstat = "0.1.5"
 procinfo = "0.4.2"
 rustfft = "4.0.0"

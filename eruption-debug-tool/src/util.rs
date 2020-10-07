@@ -141,8 +141,8 @@ pub fn print_diff(current_state: &DeviceState, data: &Vec<DeviceState>) {
 }
 
 pub fn parse_report_id(src: &str) -> std::result::Result<u8, ParseIntError> {
-    if let Some(stripped) = src.strip_prefix("0x") {
-        u8::from_str_radix(stripped, 16)
+    if src.starts_with("0x") {
+        u8::from_str_radix(&src[2..], 16)
     } else {
         u8::from_str_radix(src, 10)
     }
@@ -153,12 +153,12 @@ pub fn parse_hex_vec(src: &str) -> Result<Vec<u8>> {
 
     let src = src.trim_matches('[').trim_end_matches(']');
 
-    for e in src.split(',') {
+    for e in src.split(",") {
         let e = e.trim();
 
-        if !e.is_empty() && e.chars().next().unwrap() != ']' {
-            let val = if let Some(stripped) = e.strip_prefix("0x") {
-                u8::from_str_radix(stripped, 16)
+        if !e.is_empty() && e.chars().nth(0).unwrap() != ']' {
+            let val = if e.starts_with("0x") {
+                u8::from_str_radix(&e[2..], 16)
             } else {
                 u8::from_str_radix(e, 10)
             }?;

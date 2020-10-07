@@ -262,8 +262,6 @@ pub async fn set_sound_fx(enabled: bool) -> Result<()> {
 
 #[tokio::main]
 pub async fn main() -> std::result::Result<(), eyre::Error> {
-    color_eyre::install()?;
-
     // if unsafe { libc::isatty(0) != 0 } {
     //     print_header();
     // }

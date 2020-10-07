@@ -134,8 +134,6 @@ fn print_notice() {
 
 #[tokio::main]
 pub async fn main() -> std::result::Result<(), eyre::Error> {
-    color_eyre::install()?;
-
     if unsafe { libc::isatty(0) != 0 } {
         // print_header();
         print_notice();

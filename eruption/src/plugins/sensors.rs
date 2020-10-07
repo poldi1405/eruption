@@ -22,7 +22,7 @@ use parking_lot::Mutex;
 use std::any::Any;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use sysinfo::{ComponentExt, RefreshKind, SystemExt};
+use sysinfo::{ComponentExt, SystemExt};
 
 use crate::plugins;
 use crate::plugins::Plugin;
@@ -40,7 +40,7 @@ lazy_static! {
     static ref DO_REFRESH: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     /// System state and sensor information
-    static ref SYSTEM: Arc<Mutex<sysinfo::System>> = Arc::new(Mutex::new(sysinfo::System::new_with_specifics(RefreshKind::default().with_components().with_memory())));
+    static ref SYSTEM: Arc<Mutex<sysinfo::System>> = Arc::new(Mutex::new(sysinfo::System::new()));
 }
 
 /// A plugin that gives Lua scripts access to the systems sensor data
