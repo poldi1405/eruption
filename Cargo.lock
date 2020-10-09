@@ -476,6 +476,17 @@ dependencies = [
 
 [[package]]
 name = "dbus"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cd9e78c210146a1860f897db03412fd5091fd73100778e43ee255cca252cf32"
+dependencies = [
+ "futures",
+ "libc",
+ "libdbus-sys",
+]
+
+[[package]]
+name = "dbus"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22c08adfeb70c940c14d8af988fa854dcb5529e6141f2397e4e0fa4c9375d094"
@@ -488,11 +499,23 @@ dependencies = [
 
 [[package]]
 name = "dbus-tokio"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baaf99ea9b8296ba0db293cad28c51d788e690c47ebe9974b864354b258a636a"
+dependencies = [
+ "dbus 0.8.4",
+ "libc",
+ "mio 0.6.22",
+ "tokio 0.2.22",
+]
+
+[[package]]
+name = "dbus-tokio"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6840421e249bf51f6ad1873b53f7423f14e712208792dfe4b3a8ff99f713309"
 dependencies = [
- "dbus",
+ "dbus 0.9.0",
  "libc",
  "mio 0.6.22",
  "tokio 0.2.22",
@@ -504,7 +527,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26a1c139b794d571d930124e17fa4cae8a904dc8e916abf551ab763b00e93a63"
 dependencies = [
- "dbus",
+ "dbus 0.9.0",
 ]
 
 [[package]]
@@ -579,7 +602,7 @@ dependencies = [
  "config",
  "crossbeam 0.8.0",
  "ctrlc",
- "dbus",
+ "dbus 0.9.0",
  "dbus-tree",
  "evdev-rs",
  "eyre",
@@ -601,12 +624,11 @@ dependencies = [
  "nix 0.19.0",
  "noise",
  "palette",
- "parking_lot",
+ "parking_lot 0.11.0",
  "paste 1.0.1",
  "prctl",
  "pretty_env_logger",
  "procinfo",
- "procmon-sys",
  "rand 0.7.3",
  "rayon",
  "rust-pulsectl",
@@ -640,7 +662,7 @@ dependencies = [
  "libc",
  "log",
  "nix 0.19.0",
- "parking_lot",
+ "parking_lot 0.11.0",
  "paste 1.0.1",
  "pretty_env_logger",
  "serde 1.0.117",
@@ -669,7 +691,7 @@ dependencies = [
  "log",
  "nix 0.19.0",
  "num-traits 0.2.12",
- "parking_lot",
+ "parking_lot 0.11.0",
  "pretty_env_logger",
  "rayon",
  "serde 1.0.117",
@@ -694,8 +716,8 @@ dependencies = [
  "config",
  "crossbeam 0.7.3",
  "ctrlc",
- "dbus",
- "dbus-tokio",
+ "dbus 0.8.4",
+ "dbus-tokio 0.5.2",
  "eyre",
  "hexdump",
  "hotwatch",
@@ -710,11 +732,11 @@ dependencies = [
  "procmon-sys",
  "rayon",
  "rust-crypto",
- "serde 1.0.116",
+ "serde 1.0.117",
  "serde_json",
  "serde_yaml",
  "thiserror",
- "tokio",
+ "tokio 0.2.22",
  "toml",
  "tracing",
  "tracing-futures",
@@ -730,13 +752,13 @@ dependencies = [
  "clap_derive",
  "color-eyre",
  "colored",
- "dbus",
- "dbus-tokio",
+ "dbus 0.9.0",
+ "dbus-tokio 0.6.0",
  "eyre",
  "libc",
  "log",
  "nix 0.19.0",
- "parking_lot",
+ "parking_lot 0.11.0",
  "paste 1.0.1",
  "serde 1.0.117",
  "serde_json",
@@ -1319,6 +1341,15 @@ checksum = "8dd5a6d5999d9907cda8ed67bbd137d3af8085216c2ac62de5be860bd41f304a"
 
 [[package]]
 name = "lock_api"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4da24a77a3d8a6d4862d95f72e6fdb9c09a643ecdb402d754004a557f2bec75"
+dependencies = [
+ "scopeguard",
+]
+
+[[package]]
+name = "lock_api"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28247cc5a5be2f05fbcd76dd0cf2c7d3b5400cb978a28042abcd4fa0b3f8261c"
@@ -1450,6 +1481,29 @@ dependencies = [
  "log",
  "mio 0.6.22",
  "slab",
+]
+
+[[package]]
+name = "mio-named-pipes"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0840c1c50fd55e521b247f949c241c9997709f23bd7f023b9762cd561e935656"
+dependencies = [
+ "log",
+ "mio 0.6.22",
+ "miow 0.3.5",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "mio-uds"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "afcb699eb26d4332647cc848492bbc15eafb26f08d0304550d5aa1f612e066f0"
+dependencies = [
+ "iovec",
+ "libc",
+ "mio 0.6.22",
 ]
 
 [[package]]
@@ -1776,13 +1830,37 @@ dependencies = [
 
 [[package]]
 name = "parking_lot"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3a704eb390aafdc107b0e392f56a82b668e3a71366993b5340f5833fd62505e"
+dependencies = [
+ "lock_api 0.3.4",
+ "parking_lot_core 0.7.2",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4893845fa2ca272e647da5d0e46660a314ead9c2fdd9a883aabc32e481a8733"
 dependencies = [
  "instant",
- "lock_api",
- "parking_lot_core",
+ "lock_api 0.4.1",
+ "parking_lot_core 0.8.0",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d58c7c768d4ba344e3e8d72518ac13e259d7c7ade24167003b8488e10b6740a3"
+dependencies = [
+ "cfg-if 0.1.10",
+ "cloudabi 0.0.3",
+ "libc",
+ "redox_syscall",
+ "smallvec",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2400,7 +2478,7 @@ checksum = "ae3e2dd40a7cdc18ca80db804b7f461a39bb721160a85c9a1fa30134bf3c02a5"
 dependencies = [
  "dtoa",
  "linked-hash-map 0.5.3",
- "serde 1.0.116",
+ "serde 1.0.117",
  "yaml-rust",
 ]
 
@@ -2630,13 +2708,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d34ca54d84bf2b5b4d7d31e901a8464f7b60ac145a284fba25ceb801f2ddccd"
 dependencies = [
  "bytes",
+ "fnv",
  "futures-core",
+ "iovec",
  "lazy_static",
+ "libc",
+ "memchr 2.3.3",
  "mio 0.6.22",
+ "mio-named-pipes",
+ "mio-uds",
  "num_cpus",
+ "parking_lot 0.10.2",
  "pin-project-lite",
+ "signal-hook-registry",
  "slab",
  "tokio-macros 0.2.5",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2653,7 +2740,7 @@ dependencies = [
  "memchr 2.3.3",
  "mio 0.7.4",
  "num_cpus",
- "parking_lot",
+ "parking_lot 0.11.0",
  "pin-project-lite",
  "signal-hook-registry",
  "slab",

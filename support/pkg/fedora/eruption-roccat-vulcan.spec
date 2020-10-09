@@ -197,8 +197,6 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %config %{_datarootdir}/%{ShortName}/scripts/lib/macros/starcraft2.lua
 %{_datarootdir}/%{ShortName}/scripts/macros.lua
 %{_datarootdir}/%{ShortName}/scripts/macros.lua.manifest
-%{_datarootdir}/%{ShortName}/scripts/profiles.lua
-%{_datarootdir}/%{ShortName}/scripts/profiles.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/stats.lua
 %{_datarootdir}/%{ShortName}/scripts/stats.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/afterglow.lua

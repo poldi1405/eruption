@@ -86,8 +86,6 @@ package() {
 
     install -m 644 "eruption/src/scripts/macros.lua" "$pkgdir/usr/share/eruption/scripts/"
     install -m 644 "eruption/src/scripts/macros.lua.manifest" "$pkgdir/usr/share/eruption/scripts/"
-    install -m 644 "eruption/src/scripts/profiles.lua" "$pkgdir/usr/share/eruption/scripts/"
-    install -m 644 "eruption/src/scripts/profiles.lua.manifest" "$pkgdir/usr/share/eruption/scripts/"
     install -m 644 "eruption/src/scripts/stats.lua" "$pkgdir/usr/share/eruption/scripts/"
     install -m 644 "eruption/src/scripts/stats.lua.manifest" "$pkgdir/usr/share/eruption/scripts/"
     install -m 644 "eruption/src/scripts/afterglow.lua" "$pkgdir/usr/share/eruption/scripts/"

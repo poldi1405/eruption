@@ -28,11 +28,11 @@ serde_yaml = "0.8"
 tokio = { version = "0.2.22", features = ["full", "parking_lot"] }
 tracing = "0.1.21"
 tracing-futures = "0.2.4"
-tracing-subscriber = "0.2.12"
+tracing-subscriber = "0.2.13"
 crossbeam = "0.7.3"
 uuid = { version = "0.8.1", features = ["serde", "v4"] }
 toml = "0.5.6"
-thiserror = "1.0.20"
+thiserror = "1.0.21"
 eyre = "0.6.1"
 color-eyre = "0.5.6"
 paste = "1.0"
@@ -44,7 +44,7 @@ lazy_static = "1.4.0"
 rust-crypto = "0.2.36"
 dbus = "0.8.4"
 dbus-tokio = "0.5.2"
-procmon-sys = { version = "0.0.2", path = "../eruption/src/procmon-sys" }
+procmon-sys = { version = "0.0.2", path = "src/procmon-sys" }
 
 [dev-dependencies]
 tokio = { version = "0.2", features = ["test-util"] }
