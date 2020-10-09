@@ -15,15 +15,25 @@
     along with Eruption.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::fmt;
-use std::path::Path;
+use std::{env, fmt};
+use std::{fs, path::Path};
+use std::{io, path::PathBuf};
 
 type Result<T> = std::result::Result<T, eyre::Error>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum UtilError {
-    #[error("Operation fehlgeschlagen")]
+    #[error("Operation failed")]
     OpFailed {},
+}
+
+/// Represents an RGBA color value
+#[derive(Debug, Copy, Clone)]
+pub struct RGBA {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
 pub struct HexSlice<'a>(pub &'a [u8]);
@@ -46,6 +56,14 @@ impl fmt::Display for HexSlice<'_> {
     }
 }
 
+pub fn get_process_comm(pid: i32) -> Result<String> {
+    Ok(
+        std::fs::read_to_string(Path::new(&format!("/proc/{}/comm", pid)))?
+            .trim()
+            .to_string(),
+    )
+}
+
 pub fn get_process_file_name(pid: i32) -> Result<String> {
     let tmp = format!("/proc/{}/exe", pid);
     let filename = Path::new(&tmp);
@@ -55,4 +73,19 @@ pub fn get_process_file_name(pid: i32) -> Result<String> {
         .map_err(|_| UtilError::OpFailed {})?
         .into_string()
         .map_err(|_| UtilError::OpFailed {})?)
+}
+
+pub fn tilde_expand(path: &str) -> Result<PathBuf> {
+    let home = env::var("HOME")?;
+
+    let result = path.replacen("~", &home, 1);
+    let result = PathBuf::from(result);
+
+    Ok(result)
+}
+
+pub fn create_dir<P: AsRef<Path>>(path: &P) -> io::Result<()> {
+    let path = path.as_ref();
+
+    fs::create_dir_all(&path)
 }

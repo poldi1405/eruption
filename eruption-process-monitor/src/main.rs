@@ -15,41 +15,61 @@
     along with Eruption.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+use crate::dbus_client::Message;
+use crate::manifest::Manifest;
 use clap::Clap;
 use clap::*;
-use crossbeam::channel::{select, unbounded, Receiver, Sender};
+use colored::*;
+use crossbeam::channel::{unbounded, Receiver, Select, Sender};
+use dbus::blocking::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
+use dbus::blocking::Connection;
+use dbus_client::{profile, slot};
 use hotwatch::{
     blocking::{Flow, Hotwatch},
     Event,
 };
+use indexmap::IndexMap;
 use lazy_static::lazy_static;
 use log::*;
-use parking_lot::Mutex;
-use procmon::ProcMon;
+use parking_lot::{Mutex, RwLock};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap, env, fs, path::Path, path::PathBuf, sync::atomic::AtomicBool, sync::Arc,
-};
+use std::{env, fmt, fs, path::PathBuf, sync::atomic::AtomicBool, sync::Arc};
 use std::{sync::atomic::Ordering, thread, time::Duration};
+use walkdir::WalkDir;
 
 mod constants;
 mod dbus_client;
 mod manifest;
 mod process;
 mod procmon;
+mod sensors;
+mod transport;
 mod util;
+mod visualizers;
+
+use transport::{NetworkFXTransport, Transport, TransportError, RGBA};
 
 lazy_static! {
     /// Global configuration
     pub static ref CONFIG: Arc<Mutex<Option<config::Config>>> = Arc::new(Mutex::new(None));
 
-    /// Mapping between process event => action
-    pub static ref PROCESS_EVENT_MAP: Arc<Mutex<HashMap<String, Action>>> = Arc::new(Mutex::new(HashMap::new()));
+    /// Mapping between event selector => action
+    pub static ref RULES_MAP: Arc<RwLock<IndexMap<Selector, (RuleMetadata, Action)>>> = Arc::new(RwLock::new(IndexMap::new()));
+
+    /// Saved previous states
+    pub static ref PREVIOUS_STATES_MAP: Arc<RwLock<IndexMap<i32, Action>>> = Arc::new(RwLock::new(IndexMap::new()));
+
+    /// Currently selected slot and profile
+    pub static ref CURRENT_STATE: Arc<RwLock<(Option<u64>, Option<String>)>> = Arc::new(RwLock::new((None, None)));
 
     // Flags
 
     /// Global "enable experimental features" flag
     pub static ref EXPERIMENTAL_FEATURES: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+
+    /// Signals that we initialized a profile change
+    pub static ref PROFILE_CHANGING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     /// Global "quit" status flag
     pub static ref QUIT: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
@@ -69,10 +89,107 @@ pub enum MainError {
     SwitchProfileError {},
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum WindowFocusedSelectorMode {
+    WindowName,
+    WindowInstance,
+    WindowClass,
+}
+
+impl fmt::Display for WindowFocusedSelectorMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            WindowFocusedSelectorMode::WindowName => {
+                write!(f, "Name")?;
+            }
+
+            WindowFocusedSelectorMode::WindowInstance => {
+                write!(f, "Instance")?;
+            }
+
+            WindowFocusedSelectorMode::WindowClass => {
+                write!(f, "Class")?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum Selector {
+    ProcessExec {
+        comm: String,
+    },
+    WindowFocused {
+        mode: WindowFocusedSelectorMode,
+        regex: String,
+    },
+}
+
+impl fmt::Display for Selector {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Selector::ProcessExec { comm } => {
+                write!(f, "On process execution: comm: '{}'", comm)?;
+            }
+
+            Selector::WindowFocused { mode, regex } => {
+                write!(f, "On window focused: {}: '{}'", mode, regex)?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Action {
     SwitchToProfile { profile_name: String },
-    SwitchToSlot { slot_index: usize },
+    SwitchToSlot { slot_index: u64 },
+}
+
+impl fmt::Display for Action {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Action::SwitchToProfile { profile_name } => {
+                write!(f, "Switch to profile: {}", profile_name)?;
+            }
+
+            Action::SwitchToSlot { slot_index } => {
+                write!(f, "Switch to slot: {}", slot_index)?;
+            }
+        };
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleMetadata {
+    /// Specifies whether the rule is enabled
+    pub enabled: bool,
+
+    /// Set to true if the rule is auto-generated
+    pub internal: bool,
+}
+
+impl std::default::Default for RuleMetadata {
+    fn default() -> Self {
+        RuleMetadata {
+            enabled: true,
+            internal: false,
+        }
+    }
+}
+
+impl fmt::Display for RuleMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "enabled: {}", self.enabled)?;
+        write!(f, ", internal: {}", self.internal)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -80,10 +197,11 @@ pub enum SystemEvent {
     ProcessExec {
         event: procmon::Event,
         file_name: Option<String>,
+        comm: Option<String>,
     },
+
     ProcessExit {
         event: procmon::Event,
-        file_name: Option<String>,
     },
 }
 
@@ -92,12 +210,15 @@ pub enum SystemEvent {
 #[clap(
     version = env!("CARGO_PKG_VERSION"),
     author = "X3n0m0rph59 <x3n0m0rph59@gmail.com>",
-    about = "A CLI utility to monitor and introspect system processes",
+    about = "A daemon to monitor and introspect system processes and events",
 )]
 pub struct Options {
     /// Verbose mode (-v, -vv, -vvv, etc.)
     #[clap(short, long, parse(from_occurrences))]
     verbose: u8,
+
+    hostname: Option<String>,
+    port: Option<u16>,
 
     /// Sets the configuration file to use
     #[clap(short, long)]
@@ -112,20 +233,39 @@ pub struct Options {
 pub enum Subcommands {
     /// Run in background and monitor running processes
     Daemon,
-    /// Introspect process with PID
-    Introspect {
-        pid: i32,
-    },
 
-    ListRules,
+    /// Ping Network FX server
+    Ping,
 
-    RuleAdd {
-        rule: Vec<String>,
+    /// Rules related subcommands
+    Rules {
+        #[clap(subcommand)]
+        command: RulesSubcommands,
     },
+}
 
-    RuleRemove {
-        index: usize,
-    },
+/// Subcommands of the "rules" command
+#[derive(Debug, Clap)]
+pub enum RulesSubcommands {
+    /// List all available rules
+    List,
+
+    /// Mark a rule as enabled
+    Enable { rule_index: usize },
+
+    /// Mark a rule as disabled
+    Disable { rule_index: usize },
+
+    /// Add a new rule
+    Add { rule: Vec<String> },
+
+    /// Remove a rule by index
+    Remove { rule_index: usize },
+}
+
+#[derive(Debug, Clone)]
+pub enum DebuggerEvent {
+    ValueChanged { val: u32 },
 }
 
 #[derive(Debug, Clone)]
@@ -154,133 +294,277 @@ fn print_header() {
     );
 }
 
+fn load_manifests() -> Result<()> {
+    let directory_name = PathBuf::from(
+        CONFIG
+            .lock()
+            .as_ref()
+            .unwrap()
+            .get_str("global.manifest_dir")
+            .unwrap_or_else(|_| constants::DEFAULT_MANIFEST_DIR.to_string()),
+    );
+
+    for filename in WalkDir::new(&directory_name)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if !filename.path().is_file() {
+            continue;
+        }
+
+        let manifest = Manifest::from_file(&filename.path())?;
+
+        // add auto-generated process exec selector
+        let selector = Selector::ProcessExec {
+            comm: manifest.process_name,
+        };
+
+        let mut metadata = RuleMetadata::default();
+        metadata.internal = true;
+
+        let action = Action::SwitchToProfile {
+            profile_name: "netfx.profile".into(),
+        };
+
+        RULES_MAP.write().insert(selector, (metadata, action));
+
+        // add auto-generated window instance selector
+        let selector = Selector::WindowFocused {
+            mode: WindowFocusedSelectorMode::WindowInstance,
+            regex: manifest.window_instance,
+        };
+
+        let mut metadata = RuleMetadata::default();
+        metadata.internal = true;
+
+        let action = Action::SwitchToProfile {
+            profile_name: "netfx.profile".into(),
+        };
+
+        RULES_MAP.write().insert(selector, (metadata, action));
+    }
+
+    Ok(())
+}
+
+/// Execute an an action
+async fn process_action(action: &Action) -> Result<()> {
+    match action {
+        Action::SwitchToProfile { profile_name } => {
+            if CURRENT_STATE.read().1.is_none()
+                || CURRENT_STATE.read().1.as_ref().unwrap() != profile_name
+            {
+                info!("Triggered action: {}", action);
+
+                PROFILE_CHANGING.store(true, Ordering::SeqCst);
+
+                dbus_client::switch_profile(&profile_name).await?;
+            }
+
+            CURRENT_STATE.write().1 = Some(profile_name.clone());
+        }
+
+        Action::SwitchToSlot { slot_index } => {
+            if CURRENT_STATE.read().0.is_none()
+                || CURRENT_STATE.read().0.as_ref().unwrap() != slot_index
+            {
+                info!("Triggered action: {}", action);
+
+                PROFILE_CHANGING.store(true, Ordering::SeqCst);
+
+                dbus_client::switch_slot(*slot_index).await?;
+            }
+
+            CURRENT_STATE.write().0 = Some(*slot_index);
+        }
+    }
+
+    Ok(())
+}
+
+/// Process debugging related events
+async fn process_debug_event(event: &DebuggerEvent) -> Result<()> {
+    match event {
+        DebuggerEvent::ValueChanged { val } => {}
+    }
+
+    Ok(())
+}
+
 /// Process system related events
-async fn process_system_events(event: &SystemEvent) -> Result<()> {
-    // limit the number of messages that will be processed during this iteration
-    let mut loop_counter = 0;
+async fn process_system_event(event: &SystemEvent) -> Result<()> {
+    match event {
+        SystemEvent::ProcessExec {
+            event,
+            file_name: _,
+            comm,
+        } => {
+            if let Some(comm) = comm {
+                let rules_map = RULES_MAP.read();
+                let result = rules_map.get(&Selector::ProcessExec { comm: comm.clone() });
 
-    'SYSTEM_EVENTS_LOOP: loop {
-        let mut event_processed = false;
+                match result {
+                    Some((metadata, action)) => {
+                        if metadata.enabled {
+                            match action {
+                                Action::SwitchToProfile { profile_name: _ } => {
+                                    let profile_name = dbus_client::get_active_profile()?;
+                                    let return_action = Action::SwitchToProfile { profile_name };
+                                    PREVIOUS_STATES_MAP.write().insert(event.pid, return_action);
+                                }
 
-        match event {
-            SystemEvent::ProcessExec {
-                event: _,
-                file_name,
-            } => {
-                if let Some(file_name) = file_name {
-                    let exe = PathBuf::from(file_name);
-
-                    match &PROCESS_EVENT_MAP.lock().get(&*exe.to_string_lossy()) {
-                        Some(action) => match action {
-                            Action::SwitchToProfile { profile_name } => {
-                                info!("Switching to profile: {}", profile_name);
-
-                                dbus_client::switch_profile(&profile_name).await?;
+                                Action::SwitchToSlot { slot_index: _ } => {
+                                    let slot_index = dbus_client::get_active_slot()?;
+                                    let return_action = Action::SwitchToSlot { slot_index };
+                                    PREVIOUS_STATES_MAP.write().insert(event.pid, return_action);
+                                }
                             }
 
-                            Action::SwitchToSlot { slot_index } => {
-                                info!("Switching to slot: {}", slot_index);
-
-                                dbus_client::switch_slot(*slot_index).await?;
-                            }
-                        },
-
-                        None => {
-                            // no matching rule
+                            process_action(&action).await?;
                         }
                     }
-                } else {
-                    warn!("Could not get executable file name");
+
+                    None => {
+                        // no matching rule
+                        debug!("No matching rule");
+                    }
                 }
-
-                event_processed = true;
-            }
-
-            SystemEvent::ProcessExit { event, file_name } => {
-                event_processed = true;
+            } else {
+                debug!("Skipped processing of an exec event, could not get the process comm");
             }
         }
 
-        if !event_processed || loop_counter > constants::MAX_EVENTS_PER_ITERATION {
-            break 'SYSTEM_EVENTS_LOOP; // no more events in queue or iteration limit reached
-        }
+        SystemEvent::ProcessExit { event } => {
+            match PREVIOUS_STATES_MAP.read().get(&event.pid) {
+                Some(action) => match action {
+                    Action::SwitchToProfile { profile_name } => {
+                        debug!("Returning to profile: {}", profile_name);
 
-        loop_counter += 1;
+                        dbus_client::switch_profile(&profile_name).await?;
+                    }
+
+                    Action::SwitchToSlot { slot_index } => {
+                        debug!("Returning to slot: {}", slot_index);
+
+                        dbus_client::switch_slot(*slot_index).await?;
+                    }
+                },
+
+                None => {
+                    // no saved state available
+                }
+            }
+        }
     }
 
     Ok(())
 }
 
 /// Process filesystem related events
-async fn process_fs_events(event: &FileSystemEvent) -> Result<()> {
-    // limit the number of messages that will be processed during this iteration
-    let mut loop_counter = 0;
+async fn process_fs_event(event: &FileSystemEvent) -> Result<()> {
+    match event {
+        FileSystemEvent::RulesChanged => {
+            info!("Rules changed, reloading...");
 
-    'FS_EVENTS_LOOP: loop {
-        let mut event_processed = false;
+            RULES_MAP.write().clear();
 
-        match event {
-            FileSystemEvent::RulesChanged => {
-                warn!("Rules changed, reloading...");
+            load_manifests().unwrap_or_else(|e| error!("Could not load manifests: {}", e));
+            load_rules_map().unwrap_or_else(|e| error!("Could not load rules: {}", e));
 
-                load_event_map()?;
-
-                for (exe_file, action) in PROCESS_EVENT_MAP.lock().iter() {
-                    debug!("{} => {:?}", exe_file, action);
-                }
-
-                event_processed = true;
+            for (selector, (metadata, action)) in RULES_MAP.read().iter() {
+                debug!("{} => {} ({})", selector, action, metadata);
             }
         }
-
-        if !event_processed || loop_counter > constants::MAX_EVENTS_PER_ITERATION {
-            break 'FS_EVENTS_LOOP; // no more events in queue or iteration limit reached
-        }
-
-        loop_counter += 1;
     }
 
     Ok(())
 }
 
-pub fn spawn_system_monitor_thread(sysevents_tx: Sender<SystemEvent>) -> Result<()> {
-    thread::Builder::new()
-        .name("monitor".to_owned())
-        .spawn(move || -> Result<()> {
-            let procmon = ProcMon::new()?;
+/// Process D-Bus related events
+async fn process_dbus_event(event: &dbus_client::Message) -> Result<()> {
+    match event {
+        Message::ProfileChanged(profile_name) => {
+            // update the default rule to use the newly selected profile,
+            // but only if we did not initiate the profile change
+            if !PROFILE_CHANGING.load(Ordering::SeqCst) {
+                let selector = Selector::WindowFocused {
+                    mode: WindowFocusedSelectorMode::WindowInstance,
+                    regex: ".*".to_string(),
+                };
 
+                if let Some((_metadata, action)) = RULES_MAP.write().get_mut(&selector) {
+                    info!(
+                        "Updating the default rule to use the profile: {}",
+                        profile_name
+                    );
+
+                    *action = Action::SwitchToProfile {
+                        profile_name: profile_name.clone(),
+                    };
+                } else {
+                    error!("Could not get the default rule");
+                }
+            } else {
+                // we initiated the profile change
+                PROFILE_CHANGING.store(false, Ordering::SeqCst);
+            }
+        }
+
+        _ => { /* ignore other events */ }
+    }
+
+    Ok(())
+}
+
+async fn process_window_event(event: &sensors::X11SensorData) -> Result<()> {
+    trace!("Sensor data: {:#?}", event);
+
+    for (selector, (metadata, action)) in RULES_MAP.read().iter() {
+        match selector {
+            Selector::WindowFocused { mode, regex } => {
+                if metadata.enabled {
+                    let re = Regex::new(&regex)?;
+
+                    match mode {
+                        WindowFocusedSelectorMode::WindowName => {
+                            if re.is_match(&event.window_name) {
+                                process_action(&action).await?;
+                                break;
+                            }
+                        }
+
+                        WindowFocusedSelectorMode::WindowInstance => {
+                            if re.is_match(&event.window_instance) {
+                                process_action(&action).await?;
+                                break;
+                            }
+                        }
+                        WindowFocusedSelectorMode::WindowClass => {
+                            if re.is_match(&event.window_class) {
+                                process_action(&action).await?;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            _ => { /* not a window related selector */ }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn spawn_debugger_thread(debug_tx: Sender<DebuggerEvent>) -> Result<()> {
+    thread::Builder::new()
+        .name("ptrace".to_owned())
+        .spawn(move || -> Result<()> {
             loop {
                 // check if we shall terminate the thread
                 if QUIT.load(Ordering::SeqCst) {
                     break Ok(());
-                }
-
-                // process procmon events
-                let event = procmon.wait_for_event();
-                match event.event_type {
-                    procmon::EventType::Exec => {
-                        let pid = event.pid;
-
-                        sysevents_tx
-                            .send(SystemEvent::ProcessExec {
-                                event,
-                                file_name: util::get_process_file_name(pid).ok(),
-                            })
-                            .unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
-                    }
-
-                    procmon::EventType::Exit => {
-                        let pid = event.pid;
-
-                        sysevents_tx
-                            .send(SystemEvent::ProcessExit {
-                                event,
-                                file_name: util::get_process_file_name(pid).ok(),
-                            })
-                            .unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
-                    }
-
-                    _ => { /* ignore others */ }
                 }
             }
         })?;
@@ -314,9 +598,20 @@ pub fn register_filesystem_watcher(
 
                     hotwatch
                         .watch(&rule_file, move |event: Event| {
-                            debug!("Rule file changed: {:?}", event);
+                            // check if we shall terminate the thread
+                            if QUIT.load(Ordering::SeqCst) {
+                                return Flow::Exit;
+                            }
 
-                            fsevents_tx.send(FileSystemEvent::RulesChanged).unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
+                            match event {
+                                Event::Write(path) => {
+                                    debug!("Rule file changed: {}", path.display());
+
+                                    fsevents_tx.send(FileSystemEvent::RulesChanged).unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
+                                }
+
+                                _ => { /* do nothing */}
+                            }
 
                             Flow::Continue
                         })
@@ -327,6 +622,104 @@ pub fn register_filesystem_watcher(
                 }
             },
         )?;
+
+    Ok(())
+}
+
+/// Spawn the dbus listener thread
+pub fn spawn_dbus_thread(dbus_event_tx: Sender<dbus_client::Message>) -> Result<()> {
+    thread::Builder::new()
+        .name("dbus".to_owned())
+        .spawn(move || -> Result<()> {
+            let conn = Connection::new_system().unwrap();
+
+            let slot_proxy = conn.with_proxy(
+                "org.eruption",
+                "/org/eruption/slot",
+                Duration::from_secs(constants::DBUS_TIMEOUT_MILLIS as u64),
+            );
+
+            let profile_proxy = conn.with_proxy(
+                "org.eruption",
+                "/org/eruption/profile",
+                Duration::from_secs(constants::DBUS_TIMEOUT_MILLIS as u64),
+            );
+
+            let config_proxy = conn.with_proxy(
+                "org.eruption",
+                "/org/eruption/config",
+                Duration::from_secs(constants::DBUS_TIMEOUT_MILLIS as u64),
+            );
+
+            let tx = dbus_event_tx.clone();
+            let _id1 = slot_proxy.match_signal(
+                move |h: slot::OrgEruptionSlotActiveSlotChanged,
+                      _: &Connection,
+                      _message: &dbus::Message| {
+                    tx.send(Message::SlotChanged(h.new_slot as usize)).unwrap();
+
+                    true
+                },
+            )?;
+
+            let tx = dbus_event_tx.clone();
+            let _id1_1 = slot_proxy.match_signal(
+                move |h: slot::OrgFreedesktopDBusPropertiesPropertiesChanged,
+                      _: &Connection,
+                      _message: &dbus::Message| {
+                    // slot names have been changed
+                    if let Some(args) = h.changed_properties.get("SlotNames") {
+                        let slot_names = args
+                            .0
+                            .as_iter()
+                            .unwrap()
+                            .map(|v| v.as_str().unwrap().to_string())
+                            .collect::<Vec<String>>();
+                        tx.send(Message::SlotNamesChanged(slot_names)).unwrap();
+                    }
+
+                    true
+                },
+            )?;
+
+            let tx = dbus_event_tx.clone();
+            let _id2 = profile_proxy.match_signal(
+                move |h: profile::OrgEruptionProfileActiveProfileChanged,
+                      _: &Connection,
+                      _message: &dbus::Message| {
+                    tx.send(Message::ProfileChanged(h.new_profile_name))
+                        .unwrap();
+
+                    true
+                },
+            )?;
+
+            let tx = dbus_event_tx.clone();
+            let _id3 = config_proxy.match_signal(
+                move |h: PropertiesPropertiesChanged, _: &Connection, _message: &dbus::Message| {
+                    if let Some(brightness) = h.changed_properties.get("Brightness") {
+                        let brightness = brightness.0.as_i64().unwrap() as usize;
+
+                        tx.send(Message::BrightnessChanged(brightness)).unwrap();
+                    }
+
+                    if let Some(result) = h.changed_properties.get("EnableSfx") {
+                        let enabled = result.0.as_u64().unwrap() != 0;
+
+                        tx.send(Message::SoundFxChanged(enabled)).unwrap();
+                    }
+
+                    true
+                },
+            )?;
+
+            loop {
+                if let Err(e) = conn.process(Duration::from_millis(constants::DBUS_TIMEOUT_MILLIS))
+                {
+                    error!("Could not process a D-Bus message: {}", e);
+                }
+            }
+        })?;
 
     Ok(())
 }
@@ -365,40 +758,202 @@ mod thread_util {
 }
 
 pub async fn run_main_loop(
+    debug_rx: &Receiver<DebuggerEvent>,
     sysevents_rx: &Receiver<SystemEvent>,
     fsevents_rx: &Receiver<FileSystemEvent>,
+    dbusevents_rx: &Receiver<dbus_client::Message>,
+    ctrl_c_rx: &Receiver<bool>,
+    transport: &mut dyn Transport,
 ) -> Result<()> {
     trace!("Entering main loop...");
+
+    let mut sel = Select::new();
+
+    let ctrl_c = sel.recv(ctrl_c_rx);
+    let fsevents = sel.recv(fsevents_rx);
+    let dbusevents = sel.recv(dbusevents_rx);
+    // let debug = sel.recv(debug_rx);
+    let sysevents = sel.recv(sysevents_rx);
+
+    let led_map: &[RGBA; 144] = &[RGBA {
+        r: 0,
+        g: 0,
+        b: 0,
+        a: 0,
+    }; 144];
 
     'MAIN_LOOP: loop {
         if QUIT.load(Ordering::SeqCst) {
             break 'MAIN_LOOP;
         }
 
-        select!(
-            recv(sysevents_rx) -> message => process_system_events(&message?).await?,
-            recv(fsevents_rx) -> message => process_fs_events(&message?).await?,
-        );
+        match sel.select_timeout(Duration::from_millis(constants::MAIN_LOOP_SLEEP_MILLIS)) {
+            Ok(oper) => match oper.index() {
+                i if i == ctrl_c => {
+                    // consume the event, so that we don't cause a panic
+                    let _event = &oper.recv(&ctrl_c_rx);
+                    break 'MAIN_LOOP;
+                }
+
+                i if i == fsevents => {
+                    let event = &oper.recv(&fsevents_rx);
+                    if let Ok(event) = event {
+                        process_fs_event(&event).await.unwrap_or_else(|e| {
+                            error!("Could not process a filesystem event: {}", e)
+                        })
+                    } else {
+                        error!("{}", event.as_ref().unwrap_err());
+                    }
+                }
+
+                i if i == dbusevents => {
+                    let event = &oper.recv(&dbusevents_rx);
+                    if let Ok(event) = event {
+                        process_dbus_event(&event)
+                            .await
+                            .unwrap_or_else(|e| error!("Could not process a D-Bus event: {}", e))
+                    } else {
+                        error!("{}", event.as_ref().unwrap_err());
+                    }
+                }
+
+                i if i == sysevents => {
+                    let event = &oper.recv(&sysevents_rx);
+                    if let Ok(event) = event {
+                        process_system_event(&event)
+                            .await
+                            .unwrap_or_else(|e| error!("Could not process a system event: {}", e));
+                    } else {
+                        error!("{}", event.as_ref().unwrap_err());
+                    }
+                }
+
+                _ => unreachable!(),
+            },
+
+            Err(_) => {}
+        }
+
+        // poll all pollable sensors that do not notify us via messages
+        for sensor in sensors::SENSORS.lock().iter_mut() {
+            if sensor.is_pollable() {
+                match sensor.poll() {
+                    Ok(data) => {
+                        if let Some(data) = data.as_any().downcast_ref::<sensors::X11SensorData>() {
+                            process_window_event(&data).await?;
+                        } else {
+                            warn!("Unknown sensor data: {:#?}", data);
+                        }
+                    }
+
+                    Err(e) => warn!("Could not poll a sensor: {}", e),
+                }
+            }
+        }
+
+        // generate LED map
+
+        // reconnect the transport backend if necessary
+        if !transport.is_connected() {
+            transport.reconnect().await.unwrap_or_else(|e| {
+                debug!(
+                    "Could not reconnect to transport, retrying again later: {}",
+                    e
+                )
+            });
+        }
+
+        // send the LED map via the current transport backend
+        match transport.send_led_map(led_map).await {
+            Ok(()) => trace!("successfully sent LED map to server"),
+
+            Err(e) => {
+                if let Some(e) = e.downcast_ref::<TransportError>() {
+                    match e {
+                        TransportError::NotConnectedError { .. } => {
+                            transport.reconnect().await.unwrap_or_else(|e| {
+                                debug!(
+                                    "Could not reconnect to transport, retrying again later: {}",
+                                    e
+                                )
+                            });
+                        }
+
+                        _ => {
+                            // other TransportError error occurred
+                            error!("Could not send LED map: {}", e);
+                        }
+                    }
+                } else {
+                    // other error occurred
+                    debug!("Could not send LED map: {}", e);
+
+                    transport.reconnect().await.unwrap_or_else(|e| {
+                        debug!(
+                            "Could not reconnect to transport, retrying again later: {}",
+                            e
+                        )
+                    });
+                }
+            }
+        }
     }
 
     Ok(())
 }
 
-fn load_event_map() -> Result<()> {
-    let rules_file = PathBuf::from(constants::STATE_DIR).join("process-monitor.rules");
+fn load_rules_map() -> Result<()> {
+    let rules_file = util::tilde_expand(constants::STATE_DIR)?.join("process-monitor.rules");
 
     let s = fs::read_to_string(&rules_file)?;
-    let event_map = serde_json::from_str(&s)?;
 
-    *PROCESS_EVENT_MAP.lock() = event_map;
+    let rules_vec: Vec<(Selector, (RuleMetadata, Action))> = serde_json::from_str(&s)?;
+    let rules_map = rules_vec
+        .iter()
+        .cloned()
+        .collect::<IndexMap<Selector, (RuleMetadata, Action)>>();
+
+    RULES_MAP.write().extend(rules_map);
+
+    // add auto-generated rules
+    let default_profile = crate::CONFIG
+        .lock()
+        .as_ref()
+        .unwrap()
+        .get_str("global.default_profile")
+        .unwrap_or_else(|_| constants::DEFAULT_PROFILE.to_string());
+
+    let selector = Selector::WindowFocused {
+        mode: WindowFocusedSelectorMode::WindowInstance,
+        regex: ".*".to_string(),
+    };
+
+    let mut metadata = RuleMetadata::default();
+    metadata.internal = true;
+
+    let action = Action::SwitchToProfile {
+        profile_name: default_profile,
+    };
+
+    RULES_MAP.write().insert(selector, (metadata, action));
 
     Ok(())
 }
 
-fn save_event_map() -> Result<()> {
-    let rules_file = PathBuf::from(constants::STATE_DIR).join("process-monitor.rules");
+fn save_rules_map() -> Result<()> {
+    let rules_dir = util::tilde_expand(constants::STATE_DIR)?;
+    let rules_file = rules_dir.join("process-monitor.rules");
 
-    let s = serde_json::to_string_pretty(&*PROCESS_EVENT_MAP.lock())?;
+    util::create_dir(&rules_dir)?;
+
+    let rules_map = RULES_MAP.read();
+    let v = rules_map
+        .iter()
+        // do not save internal auto-generated rules, they will be regenerated anyway
+        .filter(|(_, (meta, _))| !meta.internal)
+        .collect::<Vec<(&Selector, &(RuleMetadata, Action))>>();
+
+    let s = serde_json::to_string_pretty(&v)?;
     fs::write(&rules_file, s)?;
 
     Ok(())
@@ -414,18 +969,27 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
 
     let opts = Options::parse();
 
+    // enable logging if we are running as a daemon
+    let daemon = match opts.command {
+        Subcommands::Daemon => true,
+
+        _ => false,
+    };
+
+    if unsafe { libc::isatty(0) == 0 } || daemon {
+        // initialize logging
+        if env::var("RUST_LOG").is_err() {
+            env::set_var("RUST_LOG_OVERRIDE", "info");
+            pretty_env_logger::init_custom_env("RUST_LOG_OVERRIDE");
+        } else {
+            pretty_env_logger::init();
+        }
+    }
+
     // start the thread deadlock detector
     #[cfg(debug_assertions)]
     thread_util::deadlock_detector()
         .unwrap_or_else(|e| error!("Could not spawn deadlock detector thread: {}", e));
-
-    // initialize logging
-    if env::var("RUST_LOG").is_err() {
-        env::set_var("RUST_LOG_OVERRIDE", "info");
-        pretty_env_logger::init_custom_env("RUST_LOG_OVERRIDE");
-    } else {
-        pretty_env_logger::init();
-    }
 
     info!(
         "Starting eruption-process-monitor: Version {}",
@@ -433,9 +997,14 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
     );
 
     // register ctrl-c handler
+    let (ctrl_c_tx, ctrl_c_rx) = unbounded();
     let q = QUIT.clone();
     ctrlc::set_handler(move || {
         q.store(true, Ordering::SeqCst);
+
+        ctrl_c_tx
+            .send(true)
+            .unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
     })
     .unwrap_or_else(|e| error!("Could not set CTRL-C handler: {}", e));
 
@@ -460,66 +1029,258 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
         warn!("** EXPERIMENTAL FEATURES are ENABLED, this may expose serious bugs! **");
     }
 
+    // initialize plugins
+    info!("Registering plugins...");
+
+    // visualizers::register_visualizers()?;
+
+    sensors::register_sensors()?;
+
+    // info!("Loading manifests...");
+    // load_manifests().unwrap_or_else(|e| error!("Could not load manifests: {}", e));
+
     info!("Loading rules...");
-    load_event_map()?;
+    load_rules_map().unwrap_or_else(|e| error!("Could not load rules: {}", e));
 
     match opts.command {
         Subcommands::Daemon => {
-            for (exe_file, action) in PROCESS_EVENT_MAP.lock().iter() {
-                debug!("{} => {:?}", exe_file, action);
+            for (index, (selector, (metadata, action))) in RULES_MAP.read().iter().enumerate() {
+                info!("{:3}: {} => {} ({})", index, selector, action, metadata);
             }
 
-            let rules_file = PathBuf::from(constants::STATE_DIR).join("process-monitor.rules");
+            let rules_dir = util::tilde_expand(constants::STATE_DIR)?;
+            let rules_file = rules_dir.join("process-monitor.rules");
+
+            util::create_dir(&rules_dir)?;
 
             let (fsevents_tx, fsevents_rx) = unbounded();
             register_filesystem_watcher(fsevents_tx, PathBuf::from(config_file), rules_file)?;
 
+            let (dbusevents_tx, dbusevents_rx) = unbounded();
+            spawn_dbus_thread(dbusevents_tx)?;
+
+            let (debug_tx, debug_rx) = unbounded();
+            // spawn_debugger_thread(debug_tx)?;
+
+            // configure plugins
             let (sysevents_tx, sysevents_rx) = unbounded();
-            spawn_system_monitor_thread(sysevents_tx)?;
+            if let Some(mut s) = sensors::find_sensor_by_id("process") {
+                let process_sensor = s
+                    .as_any_mut()
+                    .downcast_mut::<sensors::ProcessSensor>()
+                    .unwrap();
+
+                process_sensor.spawn_system_monitor_thread(sysevents_tx)?;
+            }
 
             info!("Startup completed");
+
+            info!("Connecting transport backend...");
+            let address = format!(
+                "{}:{}",
+                opts.hostname
+                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
+                opts.port.unwrap_or(constants::DEFAULT_PORT)
+            );
+
+            let mut transport = NetworkFXTransport::new();
+            transport.connect(&address).await.unwrap_or_else(|e| {
+                warn!(
+                    "Could not connect to transport, retrying again later: {}",
+                    e
+                )
+            });
 
             debug!("Entering the main loop now...");
 
             // enter the main loop
-            run_main_loop(&sysevents_rx, &fsevents_rx)
-                .await
-                .unwrap_or_else(|e| error!("{}", e));
+            run_main_loop(
+                &debug_rx,
+                &sysevents_rx,
+                &fsevents_rx,
+                &dbusevents_rx,
+                &ctrl_c_rx,
+                &mut transport,
+            )
+            .await
+            .unwrap_or_else(|e| error!("{}", e));
 
             debug!("Left the main loop");
         }
 
-        Subcommands::Introspect { pid: _ } => {}
+        Subcommands::Ping => {
+            let address = format!(
+                "{}:{}",
+                opts.hostname
+                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
+                opts.port.unwrap_or(constants::DEFAULT_PORT)
+            );
 
-        Subcommands::ListRules => {
-            println!("Dumping rules:");
+            let mut transport = NetworkFXTransport::new();
 
-            for (exe_file, action) in PROCESS_EVENT_MAP.lock().iter() {
-                println!("{} => {:?}", exe_file, action);
+            transport.connect(&address).await.unwrap_or_else(|e| {
+                eprintln!(
+                    "Could not connect to transport: {}\nIs the Network FX server running?",
+                    e
+                )
+            });
+
+            match transport.ping().await {
+                Ok(result) => println!("{}", result.1.bold()),
+
+                Err(e) => {
+                    eprintln!("Could not send a ping: {}", e);
+                }
             }
         }
 
-        Subcommands::RuleAdd { rule } => {
-            if rule.len() != 2 {
-                error!("Malformed rule definition");
-            } else {
-                let exe_file = String::from(&rule[0]);
-                let profile_name = String::from(&rule[1]);
-
-                PROCESS_EVENT_MAP.lock().insert(
-                    exe_file,
-                    Action::SwitchToProfile {
-                        profile_name: profile_name,
-                    },
-                );
+        Subcommands::Rules { command } => match command {
+            RulesSubcommands::List => {
+                for (index, (selector, (metadata, action))) in RULES_MAP.read().iter().enumerate() {
+                    println!("{:3}: {} => {} ({})", index, selector, action, metadata);
+                }
             }
-        }
 
-        Subcommands::RuleRemove { index } => {}
+            RulesSubcommands::Add { rule } => {
+                fn print_usage_examples() {
+                    eprintln!("\nPlease see below for some examples:");
+
+                    for s in sensors::SENSORS.lock().iter() {
+                        eprintln!("{}", s.get_usage_example());
+                    }
+                }
+
+                if rule.len() != 3 {
+                    eprintln!("Malformed rule definition");
+                    print_usage_examples();
+                } else {
+                    let sensor = &rule[0];
+                    let selector = &rule[1];
+                    let action = &rule[2];
+
+                    let mut parsed_selector = None;
+                    let parsed_action;
+
+                    // TODO: move this to the plugin code
+                    if sensor.contains("exec") {
+                        parsed_selector = Some(Selector::ProcessExec {
+                            comm: selector.clone(),
+                        });
+                    } else if sensor.contains("window-class") {
+                        parsed_selector = Some(Selector::WindowFocused {
+                            mode: WindowFocusedSelectorMode::WindowClass,
+                            regex: selector.clone(),
+                        });
+                    } else if sensor.contains("window-instance") {
+                        parsed_selector = Some(Selector::WindowFocused {
+                            mode: WindowFocusedSelectorMode::WindowInstance,
+                            regex: selector.clone(),
+                        });
+                    } else if sensor.contains("window-name") {
+                        parsed_selector = Some(Selector::WindowFocused {
+                            mode: WindowFocusedSelectorMode::WindowName,
+                            regex: selector.clone(),
+                        });
+                    }
+
+                    if parsed_selector.is_none() {
+                        eprintln!("Syntax error in selector");
+                        print_usage_examples();
+                    } else {
+                        if action.contains(".profile") {
+                            parsed_action = Action::SwitchToProfile {
+                                profile_name: action.clone(),
+                            };
+
+                            RULES_MAP.write().insert(
+                                parsed_selector.clone().unwrap(),
+                                (RuleMetadata::default(), parsed_action.clone()),
+                            );
+                        } else {
+                            parsed_action = Action::SwitchToSlot {
+                                slot_index: action.parse::<u64>()? - 1,
+                            };
+
+                            RULES_MAP.write().insert(
+                                parsed_selector.clone().unwrap(),
+                                (RuleMetadata::default(), parsed_action.clone()),
+                            );
+                        }
+
+                        // print resulting action to console
+                        println!("{} => {}", parsed_selector.unwrap(), parsed_action);
+
+                        save_rules_map()?;
+                    }
+                }
+            }
+
+            RulesSubcommands::Enable { rule_index } => {
+                match RULES_MAP.write().get_index_mut(rule_index) {
+                    Some((ref selector, (metadata, action))) => {
+                        if !metadata.internal {
+                            metadata.enabled = true;
+
+                            println!(
+                                "{:3}: {} => {} ({})",
+                                rule_index, selector, action, metadata
+                            );
+                        } else {
+                            eprintln!("Trying to change an internal (auto-generated) rule, this is a noop!");
+                        }
+                    }
+
+                    None => eprintln!("No matching rules found!"),
+                }
+
+                save_rules_map()?;
+            }
+
+            RulesSubcommands::Disable { rule_index } => {
+                match RULES_MAP.write().get_index_mut(rule_index) {
+                    Some((ref selector, (metadata, action))) => {
+                        if !metadata.internal {
+                            metadata.enabled = false;
+
+                            println!(
+                                "{:3}: {} => {} ({})",
+                                rule_index, selector, action, metadata
+                            );
+                        } else {
+                            eprintln!("Trying to change an internal (auto-generated) rule, this is a noop!");
+                        }
+                    }
+
+                    None => eprintln!("No matching rules found!"),
+                }
+
+                save_rules_map()?;
+            }
+
+            RulesSubcommands::Remove { rule_index } => {
+                // print results to console
+                match RULES_MAP.write().shift_remove_index(rule_index) {
+                    Some((selector, (metadata, action))) => {
+                        if !metadata.internal {
+                            println!(
+                                "{:3}: {} => {} ({})",
+                                rule_index, selector, action, metadata
+                            );
+                        } else {
+                            eprintln!("Trying to remove an internal (auto-generated) rule, this is a noop!");
+                        }
+                    }
+
+                    None => eprintln!("No matching rules found!"),
+                }
+
+                save_rules_map()?;
+            }
+        },
     }
 
     info!("Saving rules...");
-    save_event_map()?;
+    save_rules_map().unwrap_or_else(|e| error!("Could not save rules: {}", e));
 
     info!("Exiting now");
 

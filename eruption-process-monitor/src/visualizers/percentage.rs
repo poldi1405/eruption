@@ -15,36 +15,44 @@
     along with Eruption.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
+use super::Visualizer;
+use crate::transport::Transport;
 
 type Result<T> = std::result::Result<T, eyre::Error>;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Manifest {
-    pub version: i32,
-    pub exe_file: PathBuf,
-    pub process_name: String,
-    pub window_instance: String,
-    pub checksum: String,
-    pub parameters: Vec<Parameter>,
+#[derive(Debug, Clone)]
+pub struct Percentage {
+    percentage: u8,
+    color: u32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Parameter {
-    pub name: String,
-    pub description: String,
-    pub location: usize,
-    pub default_color: u32,
+impl Percentage {
+    pub fn new() -> Self {
+        Percentage {
+            percentage: 0,
+            color: 0xFF0000FF,
+        }
+    }
 }
 
-impl Manifest {
-    pub fn from_file<P: AsRef<Path>>(filename: P) -> Result<Self> {
-        let s = fs::read_to_string(filename.as_ref())?;
-        let result = serde_yaml::from_str(&s)?;
+impl Visualizer for Percentage {
+    fn initialize(&mut self) -> Result<()> {
+        Ok(())
+    }
 
-        Ok(result)
+    fn get_id(&self) -> String {
+        "percentage".to_string()
+    }
+
+    fn get_name(&self) -> String {
+        "Percentage".to_string()
+    }
+
+    fn get_description(&self) -> String {
+        "Illuminates a certain percentage of the keyboard".to_string()
+    }
+
+    fn render(&self, transport: &dyn Transport) -> Result<()> {
+        Ok(())
     }
 }
