@@ -1647,10 +1647,6 @@ async fn run_main_loop(
 
         // now, process events from all available sources...
 
-        // process events from the system monitoring thread
-        #[cfg(feature = "procmon")]
-        let future_system_events = process_system_events(&sysevents_rx, &failed_txs);
-
         // process events from the file system watcher thread
         let future_fs_events = process_filesystem_events(&fsevents_rx, &dbus_api_tx);
 
@@ -1676,19 +1672,6 @@ async fn run_main_loop(
         // process events from the D-Bus interface thread
         let future_dbus_events = process_dbus_events(&dbus_rx, &dbus_api_tx, &keyboard_device);
 
-        #[cfg(feature = "procmon")]
-        let results = try_join!(
-            future_kbd_events,
-            future_hid_events,
-            future_mouse_events,
-            future_mouse_secondary_events,
-            future_mouse_hid_events,
-            future_fs_events,
-            future_dbus_events,
-            future_system_events,
-        )?;
-
-        #[cfg(not(feature = "procmon"))]
         let results = try_join!(
             future_kbd_events,
             future_hid_events,
