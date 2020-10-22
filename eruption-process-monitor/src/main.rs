@@ -16,10 +16,8 @@
 */
 
 use crate::dbus_client::Message;
-use crate::manifest::Manifest;
 use clap::Clap;
 use clap::*;
-use colored::*;
 use crossbeam::channel::{unbounded, Receiver, Select, Sender};
 use dbus::blocking::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
 use dbus::blocking::Connection;
@@ -36,19 +34,12 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{env, fmt, fs, path::PathBuf, sync::atomic::AtomicBool, sync::Arc};
 use std::{sync::atomic::Ordering, thread, time::Duration};
-use walkdir::WalkDir;
 
 mod constants;
 mod dbus_client;
-mod manifest;
-mod process;
 mod procmon;
 mod sensors;
-mod transport;
 mod util;
-mod visualizers;
-
-use transport::{NetworkFXTransport, Transport, TransportError, RGBA};
 
 lazy_static! {
     /// Global configuration
@@ -68,7 +59,7 @@ lazy_static! {
     /// Global "enable experimental features" flag
     pub static ref EXPERIMENTAL_FEATURES: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
-    /// Signals that we initialized a profile change
+    /// Signals that we initiated a profile change
     pub static ref PROFILE_CHANGING: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     /// Global "quit" status flag
@@ -157,7 +148,7 @@ impl fmt::Display for Action {
             }
 
             Action::SwitchToSlot { slot_index } => {
-                write!(f, "Switch to slot: {}", slot_index)?;
+                write!(f, "Switch to slot: {}", slot_index + 1)?;
             }
         };
 
@@ -234,9 +225,6 @@ pub enum Subcommands {
     /// Run in background and monitor running processes
     Daemon,
 
-    /// Ping Network FX server
-    Ping,
-
     /// Rules related subcommands
     Rules {
         #[clap(subcommand)]
@@ -294,61 +282,7 @@ fn print_header() {
     );
 }
 
-fn load_manifests() -> Result<()> {
-    let directory_name = PathBuf::from(
-        CONFIG
-            .lock()
-            .as_ref()
-            .unwrap()
-            .get_str("global.manifest_dir")
-            .unwrap_or_else(|_| constants::DEFAULT_MANIFEST_DIR.to_string()),
-    );
-
-    for filename in WalkDir::new(&directory_name)
-        .follow_links(true)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if !filename.path().is_file() {
-            continue;
-        }
-
-        let manifest = Manifest::from_file(&filename.path())?;
-
-        // add auto-generated process exec selector
-        let selector = Selector::ProcessExec {
-            comm: manifest.process_name,
-        };
-
-        let mut metadata = RuleMetadata::default();
-        metadata.internal = true;
-
-        let action = Action::SwitchToProfile {
-            profile_name: "netfx.profile".into(),
-        };
-
-        RULES_MAP.write().insert(selector, (metadata, action));
-
-        // add auto-generated window instance selector
-        let selector = Selector::WindowFocused {
-            mode: WindowFocusedSelectorMode::WindowInstance,
-            regex: manifest.window_instance,
-        };
-
-        let mut metadata = RuleMetadata::default();
-        metadata.internal = true;
-
-        let action = Action::SwitchToProfile {
-            profile_name: "netfx.profile".into(),
-        };
-
-        RULES_MAP.write().insert(selector, (metadata, action));
-    }
-
-    Ok(())
-}
-
-/// Execute an an action
+/// Execute an action
 async fn process_action(action: &Action) -> Result<()> {
     match action {
         Action::SwitchToProfile { profile_name } => {
@@ -383,15 +317,6 @@ async fn process_action(action: &Action) -> Result<()> {
     Ok(())
 }
 
-/// Process debugging related events
-async fn process_debug_event(event: &DebuggerEvent) -> Result<()> {
-    match event {
-        DebuggerEvent::ValueChanged { val } => {}
-    }
-
-    Ok(())
-}
-
 /// Process system related events
 async fn process_system_event(event: &SystemEvent) -> Result<()> {
     match event {
@@ -401,37 +326,45 @@ async fn process_system_event(event: &SystemEvent) -> Result<()> {
             comm,
         } => {
             if let Some(comm) = comm {
-                let rules_map = RULES_MAP.read();
-                let result = rules_map.get(&Selector::ProcessExec { comm: comm.clone() });
+                for (selector, (metadata, action)) in RULES_MAP.read().iter() {
+                    match selector {
+                        Selector::ProcessExec { comm: regex } => {
+                            if metadata.enabled {
+                                let re = Regex::new(&regex)?;
 
-                match result {
-                    Some((metadata, action)) => {
-                        if metadata.enabled {
-                            match action {
-                                Action::SwitchToProfile { profile_name: _ } => {
-                                    let profile_name = dbus_client::get_active_profile()?;
-                                    let return_action = Action::SwitchToProfile { profile_name };
-                                    PREVIOUS_STATES_MAP.write().insert(event.pid, return_action);
-                                }
+                                if re.is_match(&comm) {
+                                    debug!("Matching rule for: {}", comm);
 
-                                Action::SwitchToSlot { slot_index: _ } => {
-                                    let slot_index = dbus_client::get_active_slot()?;
-                                    let return_action = Action::SwitchToSlot { slot_index };
-                                    PREVIOUS_STATES_MAP.write().insert(event.pid, return_action);
+                                    match action {
+                                        Action::SwitchToProfile { profile_name: _ } => {
+                                            let profile_name = dbus_client::get_active_profile()?;
+                                            let return_action =
+                                                Action::SwitchToProfile { profile_name };
+                                            PREVIOUS_STATES_MAP
+                                                .write()
+                                                .insert(event.pid, return_action);
+                                        }
+
+                                        Action::SwitchToSlot { slot_index: _ } => {
+                                            let slot_index = dbus_client::get_active_slot()?;
+                                            let return_action = Action::SwitchToSlot { slot_index };
+                                            PREVIOUS_STATES_MAP
+                                                .write()
+                                                .insert(event.pid, return_action);
+                                        }
+                                    }
+
+                                    process_action(&action).await?;
+                                    break;
                                 }
                             }
-
-                            process_action(&action).await?;
                         }
-                    }
 
-                    None => {
-                        // no matching rule
-                        debug!("No matching rule");
+                        _ => { /* Ignore others */ }
                     }
                 }
             } else {
-                debug!("Skipped processing of an exec event, could not get the process comm");
+                debug!("Could not get the process comm. The process vanished.");
             }
         }
 
@@ -445,7 +378,7 @@ async fn process_system_event(event: &SystemEvent) -> Result<()> {
                     }
 
                     Action::SwitchToSlot { slot_index } => {
-                        debug!("Returning to slot: {}", slot_index);
+                        debug!("Returning to slot: {}", slot_index + 1);
 
                         dbus_client::switch_slot(*slot_index).await?;
                     }
@@ -469,7 +402,6 @@ async fn process_fs_event(event: &FileSystemEvent) -> Result<()> {
 
             RULES_MAP.write().clear();
 
-            load_manifests().unwrap_or_else(|e| error!("Could not load manifests: {}", e));
             load_rules_map().unwrap_or_else(|e| error!("Could not load rules: {}", e));
 
             for (selector, (metadata, action)) in RULES_MAP.read().iter() {
@@ -557,25 +489,9 @@ async fn process_window_event(event: &sensors::X11SensorData) -> Result<()> {
     Ok(())
 }
 
-pub fn spawn_debugger_thread(debug_tx: Sender<DebuggerEvent>) -> Result<()> {
-    thread::Builder::new()
-        .name("ptrace".to_owned())
-        .spawn(move || -> Result<()> {
-            loop {
-                // check if we shall terminate the thread
-                if QUIT.load(Ordering::SeqCst) {
-                    break Ok(());
-                }
-            }
-        })?;
-
-    Ok(())
-}
-
 /// Watch filesystem events
 pub fn register_filesystem_watcher(
     fsevents_tx: Sender<FileSystemEvent>,
-    config_file: PathBuf,
     rule_file: PathBuf,
 ) -> Result<()> {
     debug!("Registering filesystem watcher...");
@@ -588,15 +504,6 @@ pub fn register_filesystem_watcher(
 
                 Ok(ref mut hotwatch) => {
                     hotwatch
-                        .watch(config_file, move |_event: Event| {
-                            info!("Configuration File changed on disk, please restart eruption-process-monitor for the changes to take effect!");
-
-                            Flow::Continue
-                        })
-                        .unwrap_or_else(|e| error!("Could not register file watch: {}", e));
-
-
-                    hotwatch
                         .watch(&rule_file, move |event: Event| {
                             // check if we shall terminate the thread
                             if QUIT.load(Ordering::SeqCst) {
@@ -607,16 +514,19 @@ pub fn register_filesystem_watcher(
                                 Event::Write(path) => {
                                     debug!("Rule file changed: {}", path.display());
 
-                                    fsevents_tx.send(FileSystemEvent::RulesChanged).unwrap_or_else(|e| error!("Could not send on a channel: {}", e));
+                                    fsevents_tx
+                                        .send(FileSystemEvent::RulesChanged)
+                                        .unwrap_or_else(|e| {
+                                            error!("Could not send on a channel: {}", e)
+                                        });
                                 }
 
-                                _ => { /* do nothing */}
+                                _ => { /* do nothing */ }
                             }
 
                             Flow::Continue
                         })
                         .unwrap_or_else(|e| error!("Could not register file watch: {}", e));
-
 
                     hotwatch.run();
                 }
@@ -758,12 +668,10 @@ mod thread_util {
 }
 
 pub async fn run_main_loop(
-    debug_rx: &Receiver<DebuggerEvent>,
     sysevents_rx: &Receiver<SystemEvent>,
     fsevents_rx: &Receiver<FileSystemEvent>,
     dbusevents_rx: &Receiver<dbus_client::Message>,
     ctrl_c_rx: &Receiver<bool>,
-    transport: &mut dyn Transport,
 ) -> Result<()> {
     trace!("Entering main loop...");
 
@@ -772,15 +680,7 @@ pub async fn run_main_loop(
     let ctrl_c = sel.recv(ctrl_c_rx);
     let fsevents = sel.recv(fsevents_rx);
     let dbusevents = sel.recv(dbusevents_rx);
-    // let debug = sel.recv(debug_rx);
     let sysevents = sel.recv(sysevents_rx);
-
-    let led_map: &[RGBA; 144] = &[RGBA {
-        r: 0,
-        g: 0,
-        b: 0,
-        a: 0,
-    }; 144];
 
     'MAIN_LOOP: loop {
         if QUIT.load(Ordering::SeqCst) {
@@ -850,53 +750,6 @@ pub async fn run_main_loop(
                 }
             }
         }
-
-        // generate LED map
-
-        // reconnect the transport backend if necessary
-        if !transport.is_connected() {
-            transport.reconnect().await.unwrap_or_else(|e| {
-                debug!(
-                    "Could not reconnect to transport, retrying again later: {}",
-                    e
-                )
-            });
-        }
-
-        // send the LED map via the current transport backend
-        match transport.send_led_map(led_map).await {
-            Ok(()) => trace!("successfully sent LED map to server"),
-
-            Err(e) => {
-                if let Some(e) = e.downcast_ref::<TransportError>() {
-                    match e {
-                        TransportError::NotConnectedError { .. } => {
-                            transport.reconnect().await.unwrap_or_else(|e| {
-                                debug!(
-                                    "Could not reconnect to transport, retrying again later: {}",
-                                    e
-                                )
-                            });
-                        }
-
-                        _ => {
-                            // other TransportError error occurred
-                            error!("Could not send LED map: {}", e);
-                        }
-                    }
-                } else {
-                    // other error occurred
-                    debug!("Could not send LED map: {}", e);
-
-                    transport.reconnect().await.unwrap_or_else(|e| {
-                        debug!(
-                            "Could not reconnect to transport, retrying again later: {}",
-                            e
-                        )
-                    });
-                }
-            }
-        }
     }
 
     Ok(())
@@ -921,7 +774,10 @@ fn load_rules_map() -> Result<()> {
         .as_ref()
         .unwrap()
         .get_str("global.default_profile")
-        .unwrap_or_else(|_| constants::DEFAULT_PROFILE.to_string());
+        .unwrap_or_else(|_| {
+            dbus_client::get_active_profile()
+                .unwrap_or_else(|_| constants::DEFAULT_PROFILE.to_string())
+        });
 
     let selector = Selector::WindowFocused {
         mode: WindowFocusedSelectorMode::WindowInstance,
@@ -1014,7 +870,9 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
         .unwrap_or_else(|| constants::PROCESS_MONITOR_CONFIG_FILE.to_string());
 
     let mut config = config::Config::default();
-    config.merge(config::File::new(&config_file, config::FileFormat::Toml))?;
+    if let Err(e) = config.merge(config::File::new(&config_file, config::FileFormat::Toml)) {
+        warn!("Could not parse configuration file: {}", e);
+    }
 
     *CONFIG.lock() = Some(config.clone());
 
@@ -1032,12 +890,7 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
     // initialize plugins
     info!("Registering plugins...");
 
-    // visualizers::register_visualizers()?;
-
     sensors::register_sensors()?;
-
-    // info!("Loading manifests...");
-    // load_manifests().unwrap_or_else(|e| error!("Could not load manifests: {}", e));
 
     info!("Loading rules...");
     load_rules_map().unwrap_or_else(|e| error!("Could not load rules: {}", e));
@@ -1052,15 +905,13 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
             let rules_file = rules_dir.join("process-monitor.rules");
 
             util::create_dir(&rules_dir)?;
+            util::create_rules_file_if_not_exists(&rules_file)?;
 
             let (fsevents_tx, fsevents_rx) = unbounded();
-            register_filesystem_watcher(fsevents_tx, PathBuf::from(config_file), rules_file)?;
+            register_filesystem_watcher(fsevents_tx, rules_file)?;
 
             let (dbusevents_tx, dbusevents_rx) = unbounded();
             spawn_dbus_thread(dbusevents_tx)?;
-
-            let (debug_tx, debug_rx) = unbounded();
-            // spawn_debugger_thread(debug_tx)?;
 
             // configure plugins
             let (sysevents_tx, sysevents_rx) = unbounded();
@@ -1075,63 +926,14 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
 
             info!("Startup completed");
 
-            info!("Connecting transport backend...");
-            let address = format!(
-                "{}:{}",
-                opts.hostname
-                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
-                opts.port.unwrap_or(constants::DEFAULT_PORT)
-            );
-
-            let mut transport = NetworkFXTransport::new();
-            transport.connect(&address).await.unwrap_or_else(|e| {
-                warn!(
-                    "Could not connect to transport, retrying again later: {}",
-                    e
-                )
-            });
-
             debug!("Entering the main loop now...");
 
             // enter the main loop
-            run_main_loop(
-                &debug_rx,
-                &sysevents_rx,
-                &fsevents_rx,
-                &dbusevents_rx,
-                &ctrl_c_rx,
-                &mut transport,
-            )
-            .await
-            .unwrap_or_else(|e| error!("{}", e));
+            run_main_loop(&sysevents_rx, &fsevents_rx, &dbusevents_rx, &ctrl_c_rx)
+                .await
+                .unwrap_or_else(|e| error!("{}", e));
 
             debug!("Left the main loop");
-        }
-
-        Subcommands::Ping => {
-            let address = format!(
-                "{}:{}",
-                opts.hostname
-                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
-                opts.port.unwrap_or(constants::DEFAULT_PORT)
-            );
-
-            let mut transport = NetworkFXTransport::new();
-
-            transport.connect(&address).await.unwrap_or_else(|e| {
-                eprintln!(
-                    "Could not connect to transport: {}\nIs the Network FX server running?",
-                    e
-                )
-            });
-
-            match transport.ping().await {
-                Ok(result) => println!("{}", result.1.bold()),
-
-                Err(e) => {
-                    eprintln!("Could not send a ping: {}", e);
-                }
-            }
         }
 
         Subcommands::Rules { command } => match command {

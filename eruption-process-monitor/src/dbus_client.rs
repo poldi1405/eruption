@@ -17,7 +17,7 @@
 
 #![allow(dead_code)]
 
-use crate::{constants, util::RGBA};
+use crate::constants;
 // use dbus::arg::RefArg;
 // use dbus::blocking::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged;
 use dbus::blocking::Connection;
@@ -113,32 +113,6 @@ pub fn get_active_slot() -> Result<u64> {
     );
 
     let result = proxy.active_slot()?;
-
-    Ok(result)
-}
-
-/// Fetches all LED color values from the eruption daemon
-pub fn get_led_colors() -> Result<Vec<RGBA>> {
-    use status::OrgEruptionStatus;
-
-    let conn = Connection::new_system()?;
-    let status_proxy = conn.with_proxy(
-        "org.eruption",
-        "/org/eruption/status",
-        Duration::from_secs(constants::DBUS_TIMEOUT_MILLIS as u64),
-    );
-
-    let result = status_proxy.get_led_colors()?;
-
-    let result = result
-        .iter()
-        .map(|v| RGBA {
-            r: v.0,
-            g: v.1,
-            b: v.2,
-            a: v.3,
-        })
-        .collect::<Vec<RGBA>>();
 
     Ok(result)
 }

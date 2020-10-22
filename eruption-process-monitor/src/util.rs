@@ -15,7 +15,7 @@
     along with Eruption.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use std::{env, fmt};
+use std::env;
 use std::{fs, path::Path};
 use std::{io, path::PathBuf};
 
@@ -25,35 +25,6 @@ type Result<T> = std::result::Result<T, eyre::Error>;
 pub enum UtilError {
     #[error("Operation failed")]
     OpFailed {},
-}
-
-/// Represents an RGBA color value
-#[derive(Debug, Copy, Clone)]
-pub struct RGBA {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-pub struct HexSlice<'a>(pub &'a [u8]);
-
-impl<'a> HexSlice<'a> {
-    pub fn new<T>(data: &'a T) -> HexSlice<'a>
-    where
-        T: ?Sized + AsRef<[u8]> + 'a,
-    {
-        HexSlice(data.as_ref())
-    }
-}
-
-impl fmt::Display for HexSlice<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for byte in self.0 {
-            write!(f, "0x{:02x}, ", byte)?;
-        }
-        Ok(())
-    }
 }
 
 pub fn get_process_comm(pid: i32) -> Result<String> {
@@ -88,4 +59,14 @@ pub fn create_dir<P: AsRef<Path>>(path: &P) -> io::Result<()> {
     let path = path.as_ref();
 
     fs::create_dir_all(&path)
+}
+
+pub fn create_rules_file_if_not_exists<P: AsRef<Path>>(path: &P) -> io::Result<()> {
+    let path = path.as_ref();
+
+    if !fs::metadata(&path)?.is_file() {
+        fs::write(&path, "[]")?;
+    }
+
+    Ok(())
 }

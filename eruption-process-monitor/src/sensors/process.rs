@@ -89,8 +89,6 @@ impl ProcessSensor {
                         }
 
                         procmon::EventType::Exit => {
-                            let pid = event.pid;
-
                             sysevents_tx
                                 .send(SystemEvent::ProcessExit { event })
                                 .unwrap_or_else(|e| error!("Could not send on a channel: {}", e));

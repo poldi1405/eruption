@@ -69,7 +69,6 @@ cargo build --all --release --verbose
 %{__mkdir_p} %{buildroot}%{_datarootdir}/icons/hicolor/scalable/apps
 %{__mkdir_p} %{buildroot}%{_datarootdir}/%{ShortName}/sfx
 %{__mkdir_p} %{buildroot}%{_datarootdir}/%{ShortName}/i18n
-%{__mkdir_p} %{buildroot}%{_datarootdir}/eruption-process-monitor/manifests
 
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruption.8 %{buildroot}/%{_mandir}/man8/
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruption.conf.5 %{buildroot}/%{_mandir}/man5/
@@ -159,7 +158,7 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-proc
 %{_bindir}/eruptionctl
 %{_bindir}/eruption-netfx
 %{_bindir}/eruption-debug-tool
-%{_bindir}/eruption-process-monitor
+%caps(cap_net_admin=ep) %{_bindir}/eruption-process-monitor
 %{_unitdir}/eruption.service
 %{_presetdir}/50-eruption.preset
 %{_userunitdir}/eruption-process-monitor.service
@@ -308,6 +307,5 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-proc
 %{_datarootdir}/%{ShortName}/sfx/phaser2.wav
 %{_datarootdir}/%{ShortName}/sfx/key-down.wav
 %{_datarootdir}/%{ShortName}/sfx/key-up.wav
-%{_datarootdir}/eruption-process-monitor/manifests/calculator.yaml
 
 %changelog

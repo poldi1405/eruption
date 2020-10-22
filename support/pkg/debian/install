@@ -166,5 +166,3 @@ eruption/src/scripts/examples/simple.lua usr/share/eruption/scripts/
 support/sfx/typewriter1.wav usr/share/eruption/sfx/
 support/sfx/phaser1.wav usr/share/eruption/sfx/
 support/sfx/phaser2.wav usr/share/eruption/sfx/
-
-support/process-monitor/manifests/calculator.yaml usr/share/eruption-process-monitor/manifests/
