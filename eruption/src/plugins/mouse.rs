@@ -128,10 +128,10 @@ impl MousePlugin {
                     Ok(())
                 }
 
-                Err(_e) => return Err(MousePluginError::EvdevHandleError {}.into()),
+                Err(_e) => Err(MousePluginError::EvdevHandleError {}.into()),
             },
 
-            Err(_e) => return Err(MousePluginError::EvdevError {}.into()),
+            Err(_e) => Err(MousePluginError::EvdevError {}.into()),
         }
     }
 
@@ -175,10 +175,10 @@ impl MousePlugin {
                     Ok(())
                 }
 
-                Err(_e) => return Err(MousePluginError::EvdevHandleError {}.into()),
+                Err(_e) => Err(MousePluginError::EvdevHandleError {}.into()),
             },
 
-            Err(_e) => return Err(MousePluginError::EvdevError {}.into()),
+            Err(_e) => Err(MousePluginError::EvdevError {}.into()),
         }
     }
 
@@ -361,6 +361,8 @@ impl Plugin for MousePlugin {
 
         Ok(())
     }
+
+    async fn main_loop_hook(&self, _ticks: u64) {}
 
     fn sync_main_loop_hook(&self, _ticks: u64) {}
 

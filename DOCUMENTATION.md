@@ -10,6 +10,7 @@
 - <a href="#effects">Available Effects</a>
 - <a href="#macros">Available Macro Definitions</a>
 - <a href="#info">Further Reading</a>
+- <a href="#process-monitor">Process Monitor</a>
 - <a href="#contributing">Contributing</a>
 
 ## Features <a name="features"></a>
@@ -83,8 +84,7 @@ active_scripts = [
   #   'raindrops.lua',
       'macros.lua',
   #   'stats.lua',
-  #   'profiles.lua',
-  ]
+]
 ```
 
 The file `preset-red-yellow.profile` from the directory `/var/lib/eruption/profiles`
@@ -98,7 +98,6 @@ active_scripts = [
 	  'shockwave.lua',
  	  'macros.lua',
 #	  'stats.lua',
-#     'profiles.lua',
 ]
 
 [[config.Batique]]
@@ -229,6 +228,7 @@ The following scripts are unfinished/still in development, and some of them have
 | Halo               | Effect     | `halo.lua`            | Approx. 95% done | Show a spreading rainbow colored animated halo when a key has been pressed                         |
 | Heat Map           | Effect     | `heatmap.lua`         | Approx. 50% done | Shows a heat map of recorded statistics on the keyboard                                            |
 | Gaming             | Effect     | `gaming.lua`          | Approx. 85% done | Highlight a fixed set of keys, like e.g. 'WASD'                                                    |
+| Pulse              | Effect     | `pulse.lua`           | Approx. 85% done | Display a pulsating color on a fixed set of keys                                                   |
 | Snake              | Effect     | `snake.lua`           | Approx. 25% done | Displays a snake that lives on your keyboard                                                       |
 | Linear Gradient    | Background | `linear-gradient.lua` | Approx. 95% done | Display a color gradient                                                                           |
 | Multi Gradient     | Background | `multigradient.lua`   | Approx. 65% done | Display a color gradient, supports multiple gradient stops                                         |
@@ -259,6 +259,11 @@ For a detailed documentation on how to write your own macros, please refer to [M
 
 For a documentation of the supported Lua functions and libraries, please
 refer to the developer documentation [LIBRARY.md](./LIBRARY.md)
+
+## Process Monitor <a name="process-monitor"></a>
+
+Eruption `0.1.17` added a new daemon called `eruption-process-monitor`, which allows for dynamic switching of profiles and slots using a rule matching engine.
+
 
 ## Contributing <a name="contributing"></a>
 

@@ -2,8 +2,8 @@
 %global ShortName eruption
 
 Name:    eruption-roccat-vulcan-git
-Version: 0.1.16
-Release: 0%{?dist}
+Version: 0.1.17
+Release: 3%{?dist}
 Summary: eruption-roccat-vulcan - Linux user-mode driver for the ROCCAT Vulcan 100/12x series keyboards
 URL:     https://github.com/X3n0m0rph59/eruption-roccat-vulcan
 License: GPLv3+
@@ -56,6 +56,8 @@ cargo build --all --release --verbose
 %{__mkdir_p} %{buildroot}/usr/lib/systemd/system-sleep
 %{__mkdir_p} %{buildroot}%{_unitdir}
 %{__mkdir_p} %{buildroot}%{_presetdir}
+%{__mkdir_p} %{buildroot}%{_userunitdir}
+%{__mkdir_p} %{buildroot}%{_userpresetdir}
 %{__mkdir_p} %{buildroot}%{_sharedstatedir}/%{ShortName}
 %{__mkdir_p} %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles
 %{__mkdir_p} %{buildroot}%{_libdir}/%{ShortName}/scripts
@@ -70,13 +72,18 @@ cargo build --all --release --verbose
 
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruption.8 %{buildroot}/%{_mandir}/man8/
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruption.conf.5 %{buildroot}/%{_mandir}/man5/
+cp -a %{_builddir}/%{name}-%{version}/support/man/process-monitor.conf.5 %{buildroot}/%{_mandir}/man5/
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruptionctl.1 %{buildroot}/%{_mandir}/man1/
 cp -a %{_builddir}/%{name}-%{version}/support/man/eruption-netfx.1 %{buildroot}/%{_mandir}/man1/
+cp -a %{_builddir}/%{name}-%{version}/support/man/eruption-process-monitor.1 %{buildroot}/%{_mandir}/man1/
 cp -a %{_builddir}/%{name}-%{version}/support/config/eruption.conf %{buildroot}/%{_sysconfdir}/%{ShortName}/
+cp -a %{_builddir}/%{name}-%{version}/support/config/process-monitor.conf %{buildroot}/%{_sysconfdir}/%{ShortName}/
 cp -a %{_builddir}/%{name}-%{version}/support/dbus/org.eruption.control.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/
 cp -a %{_builddir}/%{name}-%{version}/support/udev/99-eruption-roccat-vulcan.rules %{buildroot}/usr/lib/udev/rules.d/
 cp -a %{_builddir}/%{name}-%{version}/support/systemd/eruption.preset %{buildroot}/%{_presetdir}/50-eruption.preset
 cp -a %{_builddir}/%{name}-%{version}/support/systemd/eruption.service %{buildroot}/%{_unitdir}/
+cp -a %{_builddir}/%{name}-%{version}/support/systemd/eruption-process-monitor.preset %{buildroot}/%{_userpresetdir}/50-eruption-process-monitor.preset
+cp -a %{_builddir}/%{name}-%{version}/support/systemd/eruption-process-monitor.service %{buildroot}/%{_userunitdir}/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/default.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/checkerboard.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/fx1.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
@@ -103,6 +110,7 @@ cp -a %{_builddir}/%{name}-%{version}/support/profiles/snake.profile %{buildroot
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/solid-wave.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/starcraft2.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/spectrum-analyzer.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
+cp -a %{_builddir}/%{name}-%{version}/support/profiles/spectrum-analyzer-swirl.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/vu-meter.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/swirl-perlin.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
 cp -a %{_builddir}/%{name}-%{version}/support/profiles/swirl-perlin-blue-red.profile %{buildroot}%{_sharedstatedir}/%{ShortName}/profiles/
@@ -124,6 +132,7 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption %{bu
 install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruptionctl %{buildroot}%{_bindir}/eruptionctl
 install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-netfx %{buildroot}%{_bindir}/eruption-netfx
 install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debug-tool %{buildroot}%{_bindir}/eruption-debug-tool
+install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-process-monitor %{buildroot}%{_bindir}/eruption-process-monitor
 
 %post
 %systemd_post %{ShortName}.service
@@ -139,8 +148,11 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %doc %{_mandir}/man8/eruption.8.gz
 %doc %{_mandir}/man1/eruptionctl.1.gz
 %doc %{_mandir}/man1/eruption-netfx.1.gz
+%doc %{_mandir}/man1/eruption-process-monitor.1.gz
+%doc %{_mandir}/man5/process-monitor.conf.5.gz
 %dir %{_datarootdir}/icons/hicolor/scalable/apps/
 %config(noreplace) %{_sysconfdir}/%{ShortName}/%{ShortName}.conf
+%config(noreplace) %{_sysconfdir}/%{ShortName}/process-monitor.conf
 %{_sysconfdir}/dbus-1/system.d/org.eruption.control.conf
 /usr/lib/udev/rules.d/99-eruption-roccat-vulcan.rules
 /usr/lib/systemd/system-sleep/eruption
@@ -148,8 +160,11 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %{_bindir}/eruptionctl
 %{_bindir}/eruption-netfx
 %{_bindir}/eruption-debug-tool
+%caps(cap_net_admin=ep) %{_bindir}/eruption-process-monitor
 %{_unitdir}/eruption.service
 %{_presetdir}/50-eruption.preset
+%{_userunitdir}/eruption-process-monitor.service
+%{_userpresetdir}/50-eruption-process-monitor.preset
 %{_sharedstatedir}/%{ShortName}/profiles/default.profile
 %{_sharedstatedir}/%{ShortName}/profiles/checkerboard.profile
 %{_sharedstatedir}/%{ShortName}/profiles/fx1.profile
@@ -176,6 +191,7 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %{_sharedstatedir}/%{ShortName}/profiles/solid-wave.profile
 %{_sharedstatedir}/%{ShortName}/profiles/starcraft2.profile
 %{_sharedstatedir}/%{ShortName}/profiles/spectrum-analyzer.profile
+%{_sharedstatedir}/%{ShortName}/profiles/spectrum-analyzer-swirl.profile
 %{_sharedstatedir}/%{ShortName}/profiles/vu-meter.profile
 %{_sharedstatedir}/%{ShortName}/profiles/swirl-perlin.profile
 %{_sharedstatedir}/%{ShortName}/profiles/swirl-perlin-blue-red.profile
@@ -186,6 +202,7 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %{_sharedstatedir}/%{ShortName}/profiles/turbulence.profile
 %{_datarootdir}/%{ShortName}/scripts/examples/simple.lua
 %{_datarootdir}/%{ShortName}/scripts/lib/debug.lua
+%{_datarootdir}/%{ShortName}/scripts/lib/easing.lua
 %{_datarootdir}/%{ShortName}/scripts/lib/queue.lua
 %{_datarootdir}/%{ShortName}/scripts/lib/utilities.lua
 %{_datarootdir}/%{ShortName}/scripts/lib/declarations.lua
@@ -193,12 +210,9 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %config %{_datarootdir}/%{ShortName}/scripts/lib/themes/gaming.lua
 %config %{_datarootdir}/%{ShortName}/scripts/lib/macros/modifiers.lua
 %config %{_datarootdir}/%{ShortName}/scripts/lib/macros/user-macros.lua
-%config %{_datarootdir}/%{ShortName}/scripts/lib/macros/user-mappings.lua
 %config %{_datarootdir}/%{ShortName}/scripts/lib/macros/starcraft2.lua
 %{_datarootdir}/%{ShortName}/scripts/macros.lua
 %{_datarootdir}/%{ShortName}/scripts/macros.lua.manifest
-%{_datarootdir}/%{ShortName}/scripts/profiles.lua
-%{_datarootdir}/%{ShortName}/scripts/profiles.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/stats.lua
 %{_datarootdir}/%{ShortName}/scripts/stats.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/afterglow.lua
@@ -231,6 +245,8 @@ install -Dp -m 0755 %{_builddir}/%{name}-%{version}/target/release/eruption-debu
 %{_datarootdir}/%{ShortName}/scripts/phonon.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/psychedelic.lua
 %{_datarootdir}/%{ShortName}/scripts/psychedelic.lua.manifest
+%{_datarootdir}/%{ShortName}/scripts/pulse.lua
+%{_datarootdir}/%{ShortName}/scripts/pulse.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/rmf.lua
 %{_datarootdir}/%{ShortName}/scripts/rmf.lua.manifest
 %{_datarootdir}/%{ShortName}/scripts/voronoi.lua

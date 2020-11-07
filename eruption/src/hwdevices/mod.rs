@@ -19,13 +19,19 @@ use log::*;
 use parking_lot::RwLock;
 use std::sync::Arc;
 
+mod generic_mouse;
+mod roccat_kone_aimo;
 mod roccat_kone_pure_ultra;
 mod roccat_nyth;
 mod roccat_vulcan;
 
+use generic_mouse::GenericMouse;
+use roccat_kone_aimo::RoccatKoneAimo;
 use roccat_kone_pure_ultra::RoccatKonePureUltra;
 use roccat_nyth::RoccatNyth;
 use roccat_vulcan::{KeyboardHidEventCode, RoccatVulcan1xx};
+
+use crate::util;
 
 pub use roccat_vulcan::hid_code_to_key_index; // TODO: Fix this
 
@@ -43,8 +49,9 @@ pub const PRODUCT_IDS: [u16; 2] = [
 
 // Supported mice
 pub const VENDOR_IDS_MICE: [u16; 1] = [0x1e7d]; // ROCCAT
-pub const PRODUCT_IDS_MICE: [u16; 3] = [
+pub const PRODUCT_IDS_MICE: [u16; 4] = [
     0x2dd2, // ROCCAT Kone Pure Ultra
+    0x2e27, // ROCCAT Kone Aimo
     0x2e7c, 0x2e7d, // ROCCAT Nyth
 ];
 
@@ -110,6 +117,11 @@ pub enum KeyboardHidEvent {
     KeyDown { code: KeyboardHidEventCode },
     KeyUp { code: KeyboardHidEventCode },
 
+    // Brightness related
+    BrightnessUp,
+    BrightnessDown,
+    SetBrightness(u8),
+
     // Audio related
     MuteDown,
     MuteUp,
@@ -117,7 +129,7 @@ pub enum KeyboardHidEvent {
     VolumeUp,
 }
 
-/// A Keyboard HID event
+/// A Mouse HID event
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum MouseHidEvent {
     Unknown,
@@ -367,6 +379,9 @@ pub fn enumerate_devices(api: &hidapi::HidApi) -> Result<(KeyboardDevice, Option
                             as Box<dyn MouseDeviceTrait + Send + Sync + 'static>
                     }
 
+                    (0x1e7d, 0x2e27) => Box::from(RoccatKoneAimo::bind(&mouse_device.unwrap()))
+                        as Box<dyn MouseDeviceTrait + Send + Sync + 'static>,
+
                     (0x1e7d, 0x2e7c) | (0x1e7d, 0x2e7d) => {
                         Box::from(RoccatNyth::bind(&mouse_device.unwrap()))
                             as Box<dyn MouseDeviceTrait + Send + Sync + 'static>
@@ -379,7 +394,13 @@ pub fn enumerate_devices(api: &hidapi::HidApi) -> Result<(KeyboardDevice, Option
                 },
             )))
         } else {
-            None
+            // we did not find a supported mouse, let's see if we find a generic mouse device
+            if let Ok(path) = util::get_mouse_dev_from_udev() {
+                Some(Arc::new(RwLock::new(Box::from(GenericMouse::bind(&path))
+                    as Box<dyn MouseDeviceTrait + Send + Sync + 'static>)))
+            } else {
+                None
+            }
         };
 
         Ok((keyboard_device, mouse_device))
@@ -389,6 +410,8 @@ pub fn enumerate_devices(api: &hidapi::HidApi) -> Result<(KeyboardDevice, Option
 fn get_sub_device(vid: u16, pid: u16) -> i32 {
     match (vid, pid) {
         (0x1e7d, 0x2dd2) => roccat_kone_pure_ultra::KEYBOARD_SUB_DEVICE as i32,
+
+        (0x1e7d, 0x2e27) => roccat_kone_aimo::KEYBOARD_SUB_DEVICE as i32,
 
         (0x1e7d, 0x2e7c) | (0x1e7d, 0x2e7d) => roccat_nyth::KEYBOARD_SUB_DEVICE as i32,
 

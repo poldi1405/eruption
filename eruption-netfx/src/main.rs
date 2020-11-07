@@ -17,13 +17,13 @@
 
 use clap::Clap;
 use colored::Colorize;
-use std::env;
 use std::path::PathBuf;
+use std::{env, thread};
 use tokio::io;
-use tokio::io::BufReader;
+use tokio::io::{AsyncReadExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
-use tokio::time::{delay_for, Duration};
+use tokio::time::Duration;
 use walkdir::WalkDir;
 
 mod constants;
@@ -119,37 +119,43 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
         Subcommands::Ping => {
             let address = format!(
                 "{}:{}",
-                opts.hostname.unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
+                opts.hostname
+                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
                 opts.port.unwrap_or(constants::DEFAULT_PORT)
             );
             if opts.verbose > 1 {
                 println!("Connecting to: {}", address);
             }
-            let mut socket = TcpStream::connect(address).await?;
+
+            let socket = TcpStream::connect(address).await?;
+            let mut buf_reader = BufReader::new(socket);
 
             // print and send the specified command
             if opts.verbose > 0 {
                 println!("Sending STATUS inquiry...");
             }
-            socket.write_all(&Vec::from("STATUS\n")).await?;
+            buf_reader.write_all(&Vec::from("STATUS\n")).await?;
 
             // receive and print the response
-            let mut buffer = Vec::new();
-            socket.read_buf(&mut buffer).await?;
+            let mut buffer = String::new();
+            buf_reader.read_line(&mut buffer).await?;
 
-            println!("{}", String::from_utf8_lossy(&buffer).to_string().bold());
+            println!("{}", &buffer.bold());
         }
 
         Subcommands::Command { data } => {
             let address = format!(
                 "{}:{}",
-                opts.hostname.unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
+                opts.hostname
+                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
                 opts.port.unwrap_or(constants::DEFAULT_PORT)
             );
             if opts.verbose > 1 {
                 println!("Connecting to: {}", address);
             }
-            let mut socket = TcpStream::connect(address).await?;
+
+            let socket = TcpStream::connect(address).await?;
+            let mut buf_reader = BufReader::new(socket);
 
             if data == "-" {
                 let stdin = io::stdin();
@@ -168,16 +174,15 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                     }
 
                     let v = Vec::from(line);
-                    socket.write_all(&v).await?;
+                    buf_reader.write_all(&v).await?;
 
                     // receive and print the response
-                    let mut buffer = Vec::new();
-                    socket.read_buf(&mut buffer).await?;
+                    let mut buffer = String::new();
+                    buf_reader.read_line(&mut buffer).await?;
 
-                    let reply = String::from_utf8_lossy(&buffer);
-                    println!("{}", reply.bold());
+                    println!("{}", buffer.bold());
 
-                    if reply.starts_with("BYE") || reply.starts_with("ERROR:") {
+                    if buffer.starts_with("BYE") || buffer.starts_with("ERROR:") {
                         break;
                     }
                 }
@@ -188,26 +193,28 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                 }
 
                 let v = Vec::from(format!("{}\n", data));
-                socket.write_all(&v).await?;
+                buf_reader.write_all(&v).await?;
 
                 // receive and print the response
-                let mut buffer = Vec::new();
-                socket.read_buf(&mut buffer).await?;
+                let mut buffer = String::new();
+                buf_reader.read_line(&mut buffer).await?;
 
-                println!("{}", String::from_utf8_lossy(&buffer).bold());
+                println!("{}", &buffer.bold());
             }
         }
 
         Subcommands::Image { filename } => {
             let address = format!(
                 "{}:{}",
-                opts.hostname.unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
+                opts.hostname
+                    .unwrap_or_else(|| constants::DEFAULT_HOST.to_owned()),
                 opts.port.unwrap_or(constants::DEFAULT_PORT)
             );
             if opts.verbose > 1 {
                 println!("Connecting to: {}", address);
             }
-            let mut socket = TcpStream::connect(address).await?;
+            let socket = TcpStream::connect(address).await?;
+            let mut buf_reader = BufReader::new(socket);
 
             if filename.to_string_lossy() == "-" {
                 let stdin = io::stdin();
@@ -226,16 +233,15 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                     if opts.verbose > 1 {
                         println!("{}", &commands);
                     }
-                    socket.write_all(&Vec::from(commands)).await?;
+                    buf_reader.write_all(&Vec::from(commands)).await?;
 
                     // receive and print the response
-                    let mut buffer = Vec::new();
-                    socket.read_buf(&mut buffer).await?;
+                    let mut buffer = String::new();
+                    buf_reader.read_line(&mut buffer).await?;
 
-                    let reply = String::from_utf8_lossy(&buffer).to_string();
-                    println!("{}", reply.bold());
+                    println!("{}", buffer.bold());
 
-                    if reply.starts_with("BYE") || reply.starts_with("ERROR:") {
+                    if buffer.starts_with("BYE") || buffer.starts_with("ERROR:") {
                         break;
                     }
                 }
@@ -249,13 +255,13 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                 if opts.verbose > 1 {
                     println!("{}", &commands);
                 }
-                socket.write_all(&Vec::from(commands)).await?;
+                buf_reader.write_all(&Vec::from(commands)).await?;
 
                 // receive and print the response
-                let mut buffer = Vec::new();
-                socket.read_buf(&mut buffer).await?;
+                let mut buffer = String::new();
+                buf_reader.read_line(&mut buffer).await?;
 
-                println!("{}", String::from_utf8_lossy(&buffer).to_string().bold());
+                println!("{}", &buffer.bold());
             }
         }
 
@@ -272,7 +278,8 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
             if opts.verbose > 1 {
                 println!("Connecting to: {}", address);
             }
-            let mut socket = TcpStream::connect(address).await?;
+            let socket = TcpStream::connect(address).await?;
+            let mut buf_reader = BufReader::new(socket);
 
             // holds pre-processed command-sequences for each image
             let mut processed_images = vec![];
@@ -313,25 +320,23 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                     if opts.verbose > 2 {
                         println!("{}", &commands);
                     }
-                    socket.write_all(&Vec::from(commands.clone())).await?;
+                    buf_reader.write_all(&Vec::from(commands.clone())).await?;
 
                     // receive and print the response
-                    let mut buffer = Vec::new();
-                    socket.read_buf(&mut buffer).await?;
+                    let mut buffer = String::new();
+                    buf_reader.read_line(&mut buffer).await?;
 
-                    let reply = String::from_utf8_lossy(&buffer).to_string();
                     if opts.verbose > 1 {
-                        println!("{}", reply.bold());
+                        println!("{}", buffer.bold());
                     }
 
-                    if reply.starts_with("BYE") || reply.starts_with("ERROR:") {
+                    if buffer.starts_with("BYE") || buffer.starts_with("ERROR:") {
                         break;
                     }
 
-                    delay_for(Duration::from_millis(
+                    thread::sleep(Duration::from_millis(
                         frame_delay.unwrap_or(constants::DEFAULT_ANIMATION_DELAY_MILLIS),
-                    ))
-                    .await;
+                    ));
                 }
             }
         }
@@ -346,7 +351,8 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
             if opts.verbose > 1 {
                 println!("Connecting to: {}", address);
             }
-            let mut socket = TcpStream::connect(address).await?;
+            let socket = TcpStream::connect(address).await?;
+            let mut buf_reader = BufReader::new(socket);
 
             let display = xwrap::Display::open(None).unwrap();
             let window = display.get_default_root();
@@ -371,23 +377,19 @@ pub async fn main() -> std::result::Result<(), eyre::Error> {
                 if opts.verbose > 1 {
                     println!("{}", &commands);
                 }
-                socket.write_all(&Vec::from(commands)).await?;
+                buf_reader.write_all(&Vec::from(commands)).await?;
 
                 // receive and print the response
-                let mut buffer = Vec::new();
-                socket.read_buf(&mut buffer).await?;
+                let mut buffer = String::new();
+                buf_reader.read_line(&mut buffer).await?;
 
-                let reply = String::from_utf8_lossy(&buffer).to_string();
-                // println!("{}", reply.bold());
-
-                if reply.starts_with("BYE") || reply.starts_with("ERROR:") {
+                if buffer.starts_with("BYE") || buffer.starts_with("ERROR:") {
                     break;
                 }
 
-                delay_for(Duration::from_millis(
+                thread::sleep(Duration::from_millis(
                     frame_delay.unwrap_or(constants::DEFAULT_FRAME_DELAY_MILLIS),
-                ))
-                .await;
+                ));
             }
         }
     };

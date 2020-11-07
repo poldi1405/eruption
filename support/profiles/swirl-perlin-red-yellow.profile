@@ -3,6 +3,7 @@ name = 'Color Swirls (Perlin): Red and Yellow'
 description = 'Color Swirl effect'
 active_scripts = [
     'swirl-perlin.lua',
+    'halo.lua',
     'shockwave.lua',
 #   'impact.lua',
 #   'water.lua',
@@ -10,7 +11,6 @@ active_scripts = [
 #   'sysmon.lua',
     'macros.lua',
 #   'stats.lua',
-#   'profiles.lua',
 ]
 
 [[config."Perlin Swirl"]]
@@ -26,7 +26,7 @@ value = 14.0
 [[config."Perlin Swirl"]]
 type = 'float'
 name = 'time_scale'
-value = 100.0
+value = 250.0
 
 [[config."Perlin Swirl"]]
 type = 'float'

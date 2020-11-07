@@ -15,7 +15,6 @@
     along with Eruption.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-use crossbeam::channel::Receiver;
 use lazy_static::lazy_static;
 use log::*;
 use mlua::prelude::*;
@@ -29,6 +28,7 @@ use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::vec::Vec;
 
@@ -37,9 +37,6 @@ use crate::plugin_manager;
 use crate::scripting::manifest::{ConfigParam, Manifest};
 
 use crate::{ACTIVE_PROFILE, ACTIVE_SCRIPTS};
-
-#[cfg(feature = "procmon")]
-use crate::SystemEvent;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -61,10 +58,6 @@ pub enum Message {
     MouseMove(i32, i32, i32),
     MouseWheelEvent(u8),
 
-    // System events
-    #[cfg(feature = "procmon")]
-    SystemEvent(SystemEvent),
-
     //LoadScript(PathBuf),
     // Abort,
     Unload,
@@ -83,7 +76,7 @@ lazy_static! {
     }; NUM_KEYS]));
 
     /// Frame generation counter, used to detect if we need to submit the LED_MAP to the keyboard
-    pub static ref FRAME_GENERATION_COUNTER: Arc<AtomicUsize> = Arc::new(AtomicUsize::new(0));
+    pub static ref FRAME_GENERATION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 }
 
 thread_local! {
@@ -647,6 +640,15 @@ mod callbacks {
 
         super::FRAME_GENERATION_COUNTER.fetch_add(1, Ordering::SeqCst);
     }
+
+    pub(crate) fn get_brightness() -> isize {
+        crate::BRIGHTNESS.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_brightness(val: isize) {
+        crate::BRIGHTNESS.store(val, Ordering::SeqCst);
+        super::FRAME_GENERATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 /// Action requests for `run_script`
@@ -833,6 +835,9 @@ pub fn run_script(
                                 });
                             }
 
+                            *crate::UPCALL_COMPLETED_ON_KEY_DOWN.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_KEY_DOWN.1.notify_all();
+
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
                             }
@@ -851,6 +856,9 @@ pub fn run_script(
                                     errors_present = true;
                                 });
                             }
+
+                            *crate::UPCALL_COMPLETED_ON_KEY_UP.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_KEY_UP.1.notify_all();
 
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
@@ -895,6 +903,21 @@ pub fn run_script(
                                         4
                                     }
 
+                                    KeyboardHidEvent::BrightnessDown => {
+                                        arg1 = 1;
+                                        5
+                                    }
+
+                                    KeyboardHidEvent::BrightnessUp => {
+                                        arg1 = 0;
+                                        5
+                                    }
+
+                                    KeyboardHidEvent::SetBrightness(val) => {
+                                        arg1 = val;
+                                        6
+                                    }
+
                                     _ => {
                                         arg1 = 0;
                                         0
@@ -912,6 +935,9 @@ pub fn run_script(
                                         errors_present = true;
                                     });
                             }
+
+                            *crate::UPCALL_COMPLETED_ON_KEYBOARD_HID_EVENT.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_KEYBOARD_HID_EVENT.1.notify_all();
 
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
@@ -949,6 +975,9 @@ pub fn run_script(
                                     });
                             }
 
+                            *crate::UPCALL_COMPLETED_ON_MOUSE_HID_EVENT.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_MOUSE_HID_EVENT.1.notify_all();
+
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
                             }
@@ -970,6 +999,9 @@ pub fn run_script(
                                 });
                             }
 
+                            *crate::UPCALL_COMPLETED_ON_MOUSE_BUTTON_DOWN.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_MOUSE_BUTTON_DOWN.1.notify_all();
+
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
                             }
@@ -990,6 +1022,9 @@ pub fn run_script(
                                     errors_present = true;
                                 });
                             }
+
+                            *crate::UPCALL_COMPLETED_ON_MOUSE_BUTTON_UP.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_MOUSE_BUTTON_UP.1.notify_all();
 
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
@@ -1018,6 +1053,9 @@ pub fn run_script(
                                 }
                             }
 
+                            *crate::UPCALL_COMPLETED_ON_MOUSE_MOVE.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_MOUSE_MOVE.1.notify_all();
+
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
                             }
@@ -1039,52 +1077,8 @@ pub fn run_script(
                                 });
                             }
 
-                            if errors_present {
-                                return Ok(RunScriptResult::TerminatedWithErrors);
-                            }
-                        }
-
-                        #[cfg(feature = "procmon")]
-                        Message::SystemEvent(param) => {
-                            let mut errors_present = false;
-
-                            if let Ok(handler) =
-                                lua_ctx.globals().get::<_, Function>("on_system_event")
-                            {
-                                let event_type;
-                                let arg1;
-                                let arg2;
-                                let arg3;
-
-                                match param {
-                                    SystemEvent::ProcessExec { event, file_name } => {
-                                        event_type = 0;
-
-                                        arg1 = event.pid;
-                                        arg2 = file_name.unwrap_or_default();
-                                        arg3 = 0; // TODO: implement hashing
-                                    }
-
-                                    SystemEvent::ProcessExit { event, file_name } => {
-                                        event_type = 1;
-
-                                        arg1 = event.pid;
-                                        arg2 = file_name.unwrap_or_default();
-                                        arg3 = 0; // TODO: implement hashing
-                                    }
-                                }
-
-                                handler
-                                    .call::<_, ()>((event_type, arg1, arg2, arg3))
-                                    .unwrap_or_else(|e| {
-                                        error!(
-                                            "Lua error: {}\n\t{:?}",
-                                            e,
-                                            e.source().unwrap_or(&UnknownError {})
-                                        );
-                                        errors_present = true;
-                                    });
-                            }
+                            *crate::UPCALL_COMPLETED_ON_MOUSE_EVENT.0.lock() -= 1;
+                            crate::UPCALL_COMPLETED_ON_MOUSE_EVENT.1.notify_all();
 
                             if errors_present {
                                 return Ok(RunScriptResult::TerminatedWithErrors);
@@ -1228,6 +1222,21 @@ fn register_support_funcs(lua_ctx: &Lua, keyboard_device: &KeyboardDevice) -> ml
 
     let sqrt = lua_ctx.create_function(|_, f: f64| Ok(f.sqrt()))?;
     globals.set("sqrt", sqrt)?;
+
+    let asin = lua_ctx.create_function(|_, a: f64| Ok(a.asin()))?;
+    globals.set("asin", asin)?;
+
+    let atan2 = lua_ctx.create_function(|_, (y, x): (f64, f64)| Ok(y.atan2(x)))?;
+    globals.set("atan2", atan2)?;
+
+    let ceil = lua_ctx.create_function(|_, f: f64| Ok(f.ceil()))?;
+    globals.set("ceil", ceil)?;
+
+    let floor = lua_ctx.create_function(|_, f: f64| Ok(f.floor()))?;
+    globals.set("floor", floor)?;
+
+    let round = lua_ctx.create_function(|_, f: f64| Ok(f.round()))?;
+    globals.set("round", round)?;
 
     let rand =
         lua_ctx.create_function(|_, (l, h): (i64, i64)| Ok(rand::thread_rng().gen_range(l, h)))?;
@@ -1428,6 +1437,15 @@ fn register_support_funcs(lua_ctx: &Lua, keyboard_device: &KeyboardDevice) -> ml
         Ok(())
     })?;
     globals.set("submit_color_map", submit_color_map)?;
+
+    let get_brightness = lua_ctx.create_function(move |_, ()| Ok(callbacks::get_brightness()))?;
+    globals.set("get_brightness", get_brightness)?;
+
+    let set_brightness = lua_ctx.create_function(move |_, val: isize| {
+        callbacks::set_brightness(val);
+        Ok(())
+    })?;
+    globals.set("set_brightness", set_brightness)?;
 
     // finally, register Lua functions supplied by eruption plugins
     let plugin_manager = plugin_manager::PLUGIN_MANAGER.read();
