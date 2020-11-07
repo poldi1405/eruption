@@ -40,7 +40,6 @@ uuid = { version = "0.8.1", features = ["serde", "v4"] }
 toml = "0.5.7"
 thiserror = "1.0.22"
 eyre = "0.6.2"
-color-eyre = "0.5.6"
 paste = "1.0"
 hotwatch = "0.4.3"
 hexdump = "0.1.0"

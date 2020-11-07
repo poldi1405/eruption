@@ -26,11 +26,10 @@ log = "0.4.11"
 pretty_env_logger = "0.4.0"
 thiserror = "1.0.22"
 eyre = "0.6.2"
-color-eyre = "0.5.6"
 toml = "0.5.7"
 serde = { version = "1.0.117", features = ["derive"] }
 serde_json = { version = "1.0.59" }
-tokio = { version = "0.3", features = ["full", "parking_lot"] }
+tokio = { version = "0.2", features = ["full", "parking_lot"] }
 ctrlc = { version = "3.1.7", features = ["termination"] }
 clap = "3.0.0-beta.1"
 hotwatch = "0.4.3"
@@ -51,8 +50,8 @@ noise = "0.6.0"
 simdnoise = "3.1.6"
 interpolation = "0.2.0"
 # lua-src = "540.0.0"
-mlua = { version = "0.4.1", features = ["luajit"] }
-mlua_derive = { version = "0.4.0" }
+mlua = { version = "=0.4.1", features = ["lua53"] }
+mlua_derive = { version = "=0.4.0" }
 sysinfo = "=0.14.2"
 systemstat = "0.1.5"
 procinfo = "0.4.2"
@@ -72,4 +71,4 @@ paste = "1.0"
 # libpulse-simple-binding = { git = "https://github.com/jnqnfe/pulse-binding-rust.git", branch = "travis-bionic-1" }
 
 [dev-dependencies]
-tokio = { version = "0.3", features = ["test-util"] }
+tokio = { version = "0.2", features = ["test-util"] }

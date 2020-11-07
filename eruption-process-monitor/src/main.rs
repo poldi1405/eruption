@@ -817,8 +817,6 @@ fn save_rules_map() -> Result<()> {
 
 #[tokio::main]
 pub async fn main() -> std::result::Result<(), eyre::Error> {
-    color_eyre::install()?;
-
     // if unsafe { libc::isatty(0) != 0 } {
     //     print_header();
     // }
