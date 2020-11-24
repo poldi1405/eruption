@@ -15,13 +15,13 @@ support/systemd/eruption.preset lib/systemd/system-preset/
 support/systemd/eruption-process-monitor.service lib/systemd/user/
 support/systemd/eruption-process-monitor.preset lib/systemd/user-preset/
 
-support/udev/99-eruption-roccat-vulcan.rules lib/udev/rules.d/
+support/udev/99-eruption.rules lib/udev/rules.d/
 
 support/dbus/org.eruption.control.conf etc/dbus-1/system.d/
 
 support/man/eruption.8 usr/share/man/man8/
 support/man/eruption.conf.5 usr/share/man/man5/
-support/man/process-monitor.5 usr/share/man/man1/
+support/man/process-monitor.conf.5 usr/share/man/man5/
 support/man/eruptionctl.1 usr/share/man/man1/
 support/man/eruption-netfx.1 usr/share/man/man1/
 support/man/eruption-process-monitor.1 usr/share/man/man1/
@@ -29,9 +29,12 @@ support/man/eruption-process-monitor.1 usr/share/man/man1/
 support/profiles/default.profile var/lib/eruption/profiles
 support/profiles/fx1.profile var/lib/eruption/profiles
 support/profiles/fx2.profile var/lib/eruption/profiles
+support/profiles/fireplace.profile var/lib/eruption/profiles
 support/profiles/fireworks.profile var/lib/eruption/profiles
+support/profiles/flight-perlin.profile var/lib/eruption/profiles
 support/profiles/gaming.profile var/lib/eruption/profiles
 support/profiles/gradient-noise.profile var/lib/eruption/profiles
+support/profiles/heartbeat-sysmon.profile var/lib/eruption/profiles
 support/profiles/heatmap.profile var/lib/eruption/profiles
 support/profiles/heatmap-errors.profile var/lib/eruption/profiles
 support/profiles/matrix.profile var/lib/eruption/profiles
@@ -48,6 +51,7 @@ support/profiles/rainbow.profile var/lib/eruption/profiles
 support/profiles/preset-red-yellow.profile var/lib/eruption/profiles
 support/profiles/preset-blue-red.profile var/lib/eruption/profiles
 support/profiles/rainbow-wave.profile var/lib/eruption/profiles
+support/profiles/red-wave.profile var/lib/eruption/profiles
 support/profiles/snake.profile var/lib/eruption/profiles
 support/profiles/solid-wave.profile var/lib/eruption/profiles
 support/profiles/spectrum-analyzer.profile var/lib/eruption/profiles
@@ -85,6 +89,8 @@ eruption/src/scripts/checkerboard.lua usr/share/eruption/scripts/
 eruption/src/scripts/checkerboard.lua.manifest usr/share/eruption/scripts/
 eruption/src/scripts/fbm.lua usr/share/eruption/scripts/
 eruption/src/scripts/fbm.lua.manifest usr/share/eruption/scripts/
+eruption/src/scripts/flight-perlin.lua usr/share/eruption/scripts/
+eruption/src/scripts/flight-perlin.lua.manifest usr/share/eruption/scripts/
 eruption/src/scripts/fire.lua usr/share/eruption/scripts/
 eruption/src/scripts/fire.lua.manifest usr/share/eruption/scripts/
 eruption/src/scripts/fireworks.lua usr/share/eruption/scripts/
